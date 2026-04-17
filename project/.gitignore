@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+
+# Entorno
+.env
+venv/
+env/
+
+# Datos generados — no subir
+backend/data/
+backend/leads_raw.json
+backend/leads_scored.json
+backend/leads_ready.json
+backend/send_results.json
+backend/tracking_events.json
+backend/worker_state.json
+backend/worker.log
+backend/search_config.json
+backend/auth_info/
+backend/leadagent.db
+
+# Node
+node_modules/
+frontend/.next/
+frontend/out/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
