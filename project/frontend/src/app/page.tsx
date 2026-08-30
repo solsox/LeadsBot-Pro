@@ -47,24 +47,36 @@ export default function Home() {
     setTimeout(() => logRef.current?.scrollTo(0, logRef.current.scrollHeight), 50);
   };
 
-  const fetchAll = useCallback(async () => {
+  const fetchLeadsAndMetrics = useCallback(async () => {
     try {
-      const [lRes, mRes, cRes] = await Promise.all([
+      const [lRes, mRes] = await Promise.all([
         fetch(`${API}/leads`),
         fetch(`${API}/metrics`),
-        fetch(`${API}/config/search`),
       ]);
       if (lRes.ok) setLeads(await lRes.json());
       if (mRes.ok) setMetrics(await mRes.json());
+    } catch {}
+  }, []);
+
+  const fetchConfig = useCallback(async () => {
+    try {
+      const cRes = await fetch(`${API}/config/search`);
       if (cRes.ok) setConfigs(await cRes.json());
     } catch {}
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  const fetchAll = useCallback(async () => {
+    await Promise.all([fetchLeadsAndMetrics(), fetchConfig()]);
+  }, [fetchLeadsAndMetrics, fetchConfig]);
+
+  // La config de búsquedas solo se carga UNA VEZ al abrir la página.
+  // Así nunca se pisa lo que el usuario está escribiendo.
+  useEffect(() => { fetchConfig(); }, [fetchConfig]);
+  useEffect(() => { fetchLeadsAndMetrics(); }, [fetchLeadsAndMetrics]);
   useEffect(() => {
-    const t = setInterval(fetchAll, 30000);
+    const t = setInterval(fetchLeadsAndMetrics, 30000);
     return () => clearInterval(t);
-  }, [fetchAll]);
+  }, [fetchLeadsAndMetrics]);
 
   const runPipeline = async () => {
     setRunning(true);

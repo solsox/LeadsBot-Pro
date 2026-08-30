@@ -271,12 +271,7 @@ def load_search_config():
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE) as f:
             return json.load(f)
-    return [
-        {"query": "restaurantes",      "zone": "Hialeah, Florida"},
-        {"query": "peluquerías",       "zone": "Miami, Florida"},
-        {"query": "talleres mecánica", "zone": "Doral, Florida"},
-        {"query": "clínicas dentales", "zone": "Coral Gables, Florida"},
-    ]
+    return []
 
 def save_search_config(config):
     with open(CONFIG_FILE, "w") as f:
