@@ -10,7 +10,7 @@ from datetime import datetime
 from scoring   import LeadScorer, save_scored
 from generator import MessageGenerator, save_with_messages
 from sender    import EmailSender, save_results as save_send_results
-from scraper import GoogleMapsScraper, save_results as save_raw
+from scraper import GoogleMapsScraper, save_results as save_raw, DEFAULT_SEARCH_MODE, SEARCH_MODES
 
 def get_search_configs():
     if os.path.exists("search_config.json"):
@@ -19,6 +19,17 @@ def get_search_configs():
             return _json.load(f)
     from scraper import SEARCH_CONFIGS
     return SEARCH_CONFIGS
+
+MODE_FILE = "search_mode.json"
+
+def get_search_mode() -> str:
+    if os.path.exists(MODE_FILE):
+        with open(MODE_FILE) as f:
+            data = json.load(f)
+            mode = data.get("mode", DEFAULT_SEARCH_MODE)
+            if mode in SEARCH_MODES:
+                return mode
+    return DEFAULT_SEARCH_MODE
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,7 +74,7 @@ async def run_pipeline(state: dict) -> dict:
 
     # ── PASO 1: Scraping ──────────────────────────────────────────────────
     log.info("📡 PASO 1/4: Scraping Google Maps...")
-    scraper = GoogleMapsScraper(headless=True)
+    scraper = GoogleMapsScraper(headless=True, mode=get_search_mode())
     raw_leads = await scraper.scrape_all(get_search_configs())
     save_raw(raw_leads, f"data/leads_raw_{loop_num}.json")
     log.info(f"  → {len(raw_leads)} leads crudos")
@@ -113,7 +124,7 @@ async def run_pipeline(state: dict) -> dict:
    # else:
    #     log.info("  ⚠ Sin emails disponibles en este batch (integrar hunter.io)")
 
-    log.info("⏭ Pasos 3 y 4 desactivados — solo recolección de leads")
+    log.info("⏭ Pasos 3/4 (mensajes IA + envío) desactivados — el pipeline sigue y termina aquí, no se quedó pegado")
     sent_count = 0
 
     # ── actualizar estado ─────────────────────────────────────────────────

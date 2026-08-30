@@ -2,8 +2,11 @@ from __future__ import annotations
 # scraper.py
 import asyncio
 import json
+import os
 import re
 import logging
+import time
+from urllib.parse import urlsplit, urlunsplit
 from dataclasses import dataclass, asdict
 from typing import Optional
 from playwright.async_api import async_playwright, Page, BrowserContext
@@ -59,8 +62,36 @@ SEARCH_CONFIGS = [
 #]
 #
 
-SCROLL_PAUSE_MS       = 600  # ms entre scrolls (más = más lento pero más estable)
+SCROLL_PAUSE_MS       = 350  # pausa base entre scrolls; el scroll usa espera adaptativa
 HEADLESS              = True  # False para ver el browser en tiempo real
+
+QUERY_CONCURRENCY     = 4    # nº de búsquedas (query+zona) corriendo en paralelo
+DETAIL_CONCURRENCY    = 8    # nº de fichas de negocio abiertas en paralelo (pool de páginas)
+MAX_RESULTS_PER_QUERY = 30   # tope por defecto (fallback si no se especifica modo)
+
+# ─────────────────────────────────────────────
+#  MODOS DE BÚSQUEDA — cuánto pedir por query, para no scrollear/extraer
+#  siempre el máximo si no hace falta. El total real de leads depende de
+#  cuántas queries expandidas termines corriendo (ver QUERY_EXPANSIONS),
+#  así que los rangos son aproximados para una config típica de 4 búsquedas.
+# ─────────────────────────────────────────────
+SEARCH_MODES = {
+    "corto": {"label": "Corto (~30-50 leads totales, más rápido)",        "max_results_per_query": 12},
+    "medio": {"label": "Medio (~100-200 leads totales)",                   "max_results_per_query": 45},
+    "largo":  {"label": "Largo / máximo (prioriza cobertura sobre tiempo)", "max_results_per_query": 200},
+}
+DEFAULT_SEARCH_MODE = "medio"
+
+def resolve_max_results(mode: str) -> int:
+    cfg = SEARCH_MODES.get(mode, SEARCH_MODES[DEFAULT_SEARCH_MODE])
+    return cfg["max_results_per_query"]
+
+# Benchmark: permite medir si una modificación realmente mejora leads/minuto.
+BENCHMARK              = True
+BLOCK_HEAVY_RESOURCES   = True
+SCROLL_STABLE_ROUNDS    = 2
+SCROLL_POLL_MS           = 100
+SCROLL_MAX_WAIT_MS       = 900
 
  
 # ─────────────────────────────────────────────
@@ -85,38 +116,92 @@ class Lead:
 # ─────────────────────────────────────────────
 class GoogleMapsScraper:
 
-    def __init__(self, headless: bool = HEADLESS):
+    def __init__(self, headless: bool = HEADLESS, mode: str = DEFAULT_SEARCH_MODE):
         self.headless = headless
+        self.mode = mode if mode in SEARCH_MODES else DEFAULT_SEARCH_MODE
+        self.max_results_per_query = resolve_max_results(self.mode)
+        log.info(
+            f"🎚 Modo de búsqueda: {SEARCH_MODES[self.mode]['label']} "
+            f"(máx {self.max_results_per_query} fichas/query)"
+        )
 
     async def scrape_all(self, configs: list) -> list:
         # AÑADE esta línea al inicio:
         configs = expand_queries(configs)
         log.info(f"📋 Búsquedas expandidas: {len(configs)} queries totales")
-        all_leads = []
-        
-        """Ejecuta todas las búsquedas definidas en SEARCH_CONFIGS."""
+
+        # Dedup global: si dos queries expandidas (ej. "restaurantes" y
+        # "comida rápida") devuelven el mismo negocio, solo se extrae una vez.
+        seen_urls: set[str] = set()
+
+        """Ejecuta todas las búsquedas definidas en SEARCH_CONFIGS, en paralelo."""
+        run_started = time.perf_counter()
+        all_leads: list = []
+
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=self.headless)
-            context = await self._build_context(browser)
+            page_pool: Optional[asyncio.Queue] = None
+            try:
+                context = await self._build_context(browser)
 
-            for cfg in configs:
-                query = cfg["query"]
-                zone  = cfg["zone"]
-                log.info(f"🔍 Buscando '{query}' en '{zone}'")
+                # Pool de páginas reutilizables para extraer fichas de detalle.
+                # Se comparte entre TODAS las queries (paralelas o no), así el
+                # tamaño del pool es el único límite real de fichas simultáneas.
+                page_pool = await self._build_page_pool(context, DETAIL_CONCURRENCY)
+
+                query_sem = asyncio.Semaphore(QUERY_CONCURRENCY)
+
+                async def run_query(cfg: dict) -> list:
+                    async with query_sem:
+                        query = cfg["query"]
+                        zone  = cfg["zone"]
+                        log.info(f"🔍 Buscando '{query}' en '{zone}'")
+                        try:
+                            leads = await self._scrape_query(context, query, zone, seen_urls, page_pool)
+                            log.info(f"✅ {len(leads)} leads nuevos para '{query}' en '{zone}'")
+                            return leads
+                        except Exception as e:
+                            log.error(f"❌ Error en '{query}' / '{zone}': {e}")
+                            return []
+
+                results = await asyncio.gather(*[run_query(cfg) for cfg in configs])
+                all_leads = [lead for batch in results for lead in batch]
+            finally:
+                # se ejecuta también si algo falló antes (ej. error creando
+                # el context o el pool) — nunca deja el browser/páginas abiertas
+                if page_pool is not None:
+                    while not page_pool.empty():
+                        p = await page_pool.get()
+                        try:
+                            await p.close()
+                        except Exception:
+                            pass
                 try:
-                    leads = await self._scrape_query(context, query, zone)
-                    all_leads.extend(leads)
-                    log.info(f"✅ {len(leads)} leads extraídos para '{query}' en '{zone}'")
-                except Exception as e:
-                    log.error(f"❌ Error en '{query}' / '{zone}': {e}")
+                    await browser.close()
+                except Exception:
+                    pass
 
-            await browser.close()
+        elapsed = time.perf_counter() - run_started
+        if BENCHMARK:
+            leads_per_min = (len(all_leads) / elapsed * 60) if elapsed else 0
+            log.info(
+                "📊 BENCHMARK | queries=%d | leads=%d | tiempo=%.2fs | leads/min=%.1f",
+                len(configs), len(all_leads), elapsed, leads_per_min
+            )
 
         return all_leads
 
+    # ── pool de páginas reutilizables para fichas de detalle ───────────────
+    async def _build_page_pool(self, context: BrowserContext, size: int) -> asyncio.Queue:
+        pool: asyncio.Queue = asyncio.Queue()
+        for _ in range(size):
+            page = await context.new_page()
+            pool.put_nowait(page)
+        return pool
+
     # ── contexto con headers humanos ──────────────────────────────────────
     async def _build_context(self, browser) -> BrowserContext:
-        return await browser.new_context(
+        context = await browser.new_context(
             viewport={"width": 1280, "height": 900},
             user_agent=(
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -127,54 +212,85 @@ class GoogleMapsScraper:
             timezone_id="America/New_York",
         )
 
+        if BLOCK_HEAVY_RESOURCES:
+            async def route_handler(route):
+                resource_type = route.request.resource_type
+                if resource_type in {"image", "media", "font"}:
+                    await route.abort()
+                else:
+                    await route.continue_()
+
+            await context.route("**/*", route_handler)
+
+        return context
+
     # ── búsqueda individual ───────────────────────────────────────────────
     async def _scrape_query(
-        self, context: BrowserContext, query: str, zone: str
+        self,
+        context: BrowserContext,
+        query: str,
+        zone: str,
+        seen_urls: set[str],
+        page_pool: asyncio.Queue,
     ) -> list[Lead]:
 
         page = await context.new_page()
         search_term = f"{query} en {zone}"
         url = f"https://www.google.com/maps/search/?api=1&query={search_term.replace(' ', '+')}"
 
+        query_started = time.perf_counter()
         await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-        await page.wait_for_timeout(4000)  # espera más
-        # simula movimiento de mouse
-        await page.mouse.move(300, 400)
-        await page.wait_for_timeout(1000)
-        await page.mouse.move(500, 300)
-        await page.wait_for_timeout(1500)
+        # Movimiento mínimo; evitamos una espera fija larga.
+        await page.mouse.move(400, 350)
 
         # aceptar cookies si aparece el banner
         await self._dismiss_cookies(page)
 
-        # scroll del panel de resultados hasta MAX_RESULTS
-        await self._scroll_results(page)
+        # scroll del panel de resultados hasta el tope del modo elegido,
+        # o hasta que deje de haber fichas nuevas (lo que ocurra primero)
+        await self._scroll_results(page, self.max_results_per_query)
 
         # extraer URLs de los negocios listados
         place_links = await self._collect_place_links(page)
-        log.info(f"  → {len(place_links)} fichas encontradas")
+        place_links = list(dict.fromkeys(place_links))[:self.max_results_per_query]
+        await page.close()
 
-        leads: list[Lead] = []
-    # PON:
-        semaphore = asyncio.Semaphore(5)
+        # dedup global: la clave (place ID o path normalizado) decide si ya
+        # se vio el negocio, pero la URL REAL se conserva intacta en
+        # new_links — es la que se usa después para navegar en _extract_place.
+        new_links = []
+        skipped = 0
+        for link in place_links:
+            key = self._normalize_maps_url(link)
+            if key not in seen_urls:
+                seen_urls.add(key)
+                new_links.append(link)
+            else:
+                skipped += 1
+        log.info(f"  → {len(place_links)} fichas encontradas, {skipped} duplicadas (omitidas)")
 
         async def fetch(link: str) -> Optional[Lead]:
-            async with semaphore:
-                try:
-                    return await self._extract_place(context, link, zone, query)
-                except Exception as e:
-                    log.warning(f"  ⚠ skip ficha ({e})")
-                    return None
+            detail_page = await page_pool.get()
+            try:
+                return await self._extract_place(detail_page, link, zone, query)
+            except Exception as e:
+                log.warning(f"  ⚠ skip ficha ({e})")
+                return None
+            finally:
+                await page_pool.put(detail_page)
 
-        results = await asyncio.gather(*[fetch(l) for l in (place_links or [])])
-        leads = [r for r in results if r is not None]
-
-        await page.close()
-        return leads
+        results = await asyncio.gather(*[fetch(l) for l in new_links])
+        elapsed = time.perf_counter() - query_started
+        valid = [r for r in results if r is not None]
+        log.info(
+            "⏱ '%s' | fichas=%d | leads=%d | tiempo=%.2fs",
+            query, len(new_links), len(valid), elapsed
+        )
+        return valid
 
     # ── scroll del panel izquierdo ────────────────────────────────────────
-    async def _scroll_results(self, page: Page) -> None:
-        """Scrollea el panel de resultados para cargar más fichas."""
+    async def _scroll_results(self, page: Page, max_results: int = MAX_RESULTS_PER_QUERY) -> None:
+        """Scroll adaptativo: corta por máximo, fin de resultados o falta de novedades."""
         panel_selector = 'div[role="feed"]'
         try:
             await page.wait_for_selector(panel_selector, timeout=8000)
@@ -182,18 +298,67 @@ class GoogleMapsScraper:
             log.warning("  ⚠ Panel de resultados no encontrado, continuando...")
             return
 
-        for i in range(50):  # máximo 15 scrolls
+        last_count = 0
+        stable_rounds = 0
+
+        for i in range(50):
+            before = await page.eval_on_selector_all(
+                'a[href*="/maps/place/"]',
+                "els => new Set(els.map(e => e.href)).size"
+            )
+
             await page.eval_on_selector(
                 panel_selector,
-                "el => el.scrollBy(0, 800)"
+                "el => el.scrollBy(0, 900)"
             )
-            await page.wait_for_timeout(SCROLL_PAUSE_MS)
 
-            # detectar fin de resultados
+            # Espera adaptativa: sale en cuanto aparecen nuevos links.
+            deadline = time.perf_counter() + (SCROLL_MAX_WAIT_MS / 1000)
+            count = before
+            while time.perf_counter() < deadline:
+                await page.wait_for_timeout(SCROLL_POLL_MS)
+                count = await page.eval_on_selector_all(
+                    'a[href*="/maps/place/"]',
+                    "els => new Set(els.map(e => e.href)).size"
+                )
+                if count > before:
+                    break
+
+            if count >= max_results:
+                log.debug(f"  → alcanzado tope de {max_results} resultados tras {i+1} scrolls")
+                break
+
+            if count == last_count:
+                stable_rounds += 1
+                if stable_rounds >= SCROLL_STABLE_ROUNDS:
+                    log.debug(f"  → sin fichas nuevas tras {i+1} scrolls, cortando")
+                    break
+            else:
+                stable_rounds = 0
+
+            last_count = count
+
             end_msg = page.locator('span:has-text("Has llegado al final")')
             if await end_msg.count() > 0:
                 log.debug(f"  → fin de resultados tras {i+1} scrolls")
                 break
+
+    @staticmethod
+    def _normalize_maps_url(url: str) -> str:
+        """Clave estable para dedup. El path de un link de Maps suele traer
+        @lat,lng,zoom, que puede variar entre apariciones del MISMO negocio
+        en queries distintas — normalizar solo query/fragment no basta.
+        Se intenta extraer el place ID de Google (patrón !1s0x...:0x...
+        dentro del segmento 'data='), que es estable. Si no aparece, se cae
+        al path sin query/fragment como respaldo."""
+        match = re.search(r"!1s(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+)", url)
+        if match:
+            return match.group(1)
+        try:
+            parts = urlsplit(url)
+            return urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
+        except Exception:
+            return url
 
     # ── recopilar links de fichas ─────────────────────────────────────────
     async def _collect_place_links(self, page: Page) -> list[str]:
@@ -205,39 +370,54 @@ class GoogleMapsScraper:
 
     # ── extraer datos de una ficha ────────────────────────────────────────
     async def _extract_place(
-        self, context: BrowserContext, url: str, zone: str, query: str
+        self, page: Page, url: str, zone: str, query: str
     ) -> Optional[Lead]:
-
-        page = await context.new_page()
+        # `page` viene del pool compartido (ver page_pool) y se reutiliza
+        # entre fichas — ya no se crea/cierra una página por negocio.
+        await page.goto(url, wait_until="domcontentloaded", timeout=20_000)
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=20_000)
-            await page.wait_for_timeout(1500)
-
-            name     = await self._get_text(page, 'h1.DUwDvf, h1[class*="fontHeadlineLarge"]')
-            address  = await self._get_text(page, '[data-item-id="address"] .Io6YTe, button[data-item-id="address"]')
-            phone    = await self._get_phone(page)
-            website  = await self._get_website(page)
-            rating   = await self._get_rating(page)
-            reviews  = await self._get_review_count(page)
-            category = await self._get_text(page, 'button.DkEaL')
-
-            if not name:
-                return None
-
-            return Lead(
-                name=name.strip(),
-                address=address or "",
-                phone=phone,
-                website=website,
-                rating=rating,
-                reviews=reviews,
-                category=category,
-                zone=zone,
-                query=query,
-                maps_url=url,
+            # espera a que aparezca el nombre en vez de un timeout fijo
+            await page.wait_for_selector(
+                'h1.DUwDvf, h1[class*="fontHeadlineLarge"]', timeout=5000
             )
-        finally:
-            await page.close()
+        except Exception:
+            pass  # si no aparece en 5s, igual intentamos leer lo que haya
+
+        # Los campos son independientes: se leen en paralelo para evitar
+        # una cadena de awaits secuenciales de hasta varios segundos.
+        (
+            name,
+            address,
+            phone,
+            website,
+            rating,
+            reviews,
+            category,
+        ) = await asyncio.gather(
+            self._get_text(page, 'h1.DUwDvf, h1[class*="fontHeadlineLarge"]'),
+            self._get_text(page, '[data-item-id="address"] .Io6YTe, button[data-item-id="address"]'),
+            self._get_phone(page),
+            self._get_website(page),
+            self._get_rating(page),
+            self._get_review_count(page),
+            self._get_text(page, 'button.DkEaL'),
+        )
+
+        if not name:
+            return None
+
+        return Lead(
+            name=name.strip(),
+            address=address or "",
+            phone=phone,
+            website=website,
+            rating=rating,
+            reviews=reviews,
+            category=category,
+            zone=zone,
+            query=query,
+            maps_url=url,
+        )
 
     # ── helpers de extracción ─────────────────────────────────────────────
     async def _get_text(self, page: Page, selector: str) -> Optional[str]:
@@ -297,6 +477,9 @@ class GoogleMapsScraper:
 #  SALIDA
 # ─────────────────────────────────────────────
 def save_results(leads: list[Lead], path: str = "leads_raw.json") -> None:
+    dirname = os.path.dirname(path)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
     data = [asdict(l) for l in leads]
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

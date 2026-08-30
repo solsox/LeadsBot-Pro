@@ -58,6 +58,7 @@ class WorkerStatus(BaseModel):
 
 class ScrapeRequest(BaseModel):
     queries: List[dict]   # [{"query": "restaurantes", "zone": "Miami, FL"}]
+    mode: Optional[str] = None   # "corto" | "medio" | "largo" — None usa el default
 
 class TrackEvent(BaseModel):
     lead_id: str
@@ -72,10 +73,16 @@ def load_json(path: str) -> list:
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    # busca el archivo más reciente en data/
+    # busca el archivo más reciente en data/ (ordenado por Nº de loop real,
+    # no alfabéticamente — "10" < "2" como string, así que un sorted()
+    # normal deja de servir en cuanto hay 10+ loops)
     pattern = f"data/{path.replace('.json', '_*.json')}"
-    files = sorted(glob.glob(pattern))
+    files = glob.glob(pattern)
     if files:
+        def loop_num(fname: str) -> int:
+            digits = "".join(ch for ch in fname.rsplit("_", 1)[-1] if ch.isdigit())
+            return int(digits) if digits else -1
+        files.sort(key=loop_num)
         with open(files[-1], encoding="utf-8") as f:
             return json.load(f)
     return []
@@ -204,8 +211,8 @@ def trigger_worker(background_tasks: BackgroundTasks):
 def trigger_scrape(req: ScrapeRequest, background_tasks: BackgroundTasks):
     """Scraping con zonas personalizadas."""
     async def _scrape():
-        from scraper import GoogleMapsScraper, save_results
-        scraper = GoogleMapsScraper(headless=True)
+        from scraper import GoogleMapsScraper, save_results, DEFAULT_SEARCH_MODE
+        scraper = GoogleMapsScraper(headless=True, mode=req.mode or DEFAULT_SEARCH_MODE)
         leads   = await scraper.scrape_all(req.queries)
         save_results(leads)
 
@@ -293,6 +300,37 @@ def update_search_config(config: List[SearchConfigItem]):
     save_search_config([c.dict() for c in config])
     return {"ok": True}
 
+MODE_FILE = "search_mode.json"
+
+class SearchModeItem(BaseModel):
+    mode: str   # "corto" | "medio" | "largo"
+
+@app.get("/config/mode", tags=["config"])
+def get_search_mode():
+    """Modo de búsqueda que usará el worker automático (loop de 6h)."""
+    from scraper import DEFAULT_SEARCH_MODE, SEARCH_MODES
+    if os.path.exists(MODE_FILE):
+        with open(MODE_FILE) as f:
+            data = json.load(f)
+            if data.get("mode") in SEARCH_MODES:
+                return data
+    return {"mode": DEFAULT_SEARCH_MODE}
+
+@app.get("/config/modes", tags=["config"])
+def list_search_modes():
+    """Opciones disponibles (corto/medio/largo) con su descripción, para poblar el selector del dashboard."""
+    from scraper import SEARCH_MODES
+    return SEARCH_MODES
+
+@app.post("/config/mode", tags=["config"])
+def update_search_mode(item: SearchModeItem):
+    from scraper import SEARCH_MODES
+    if item.mode not in SEARCH_MODES:
+        raise HTTPException(400, f"Modo inválido. Usa uno de: {list(SEARCH_MODES.keys())}")
+    with open(MODE_FILE, "w") as f:
+        json.dump({"mode": item.mode}, f, indent=2)
+    return {"ok": True}
+
 @app.get("/export/csv", tags=["export"])
 def export_csv():
     import csv, io, glob
@@ -353,6 +391,31 @@ def stop_worker():
     global _worker_running
     _worker_running = False
     return {"message": "Worker detenido"}
+
+@app.post("/worker/reset", tags=["worker"])
+def reset_worker():
+    """Borra el estado y los datos acumulados para arrancar una búsqueda limpia."""
+    global _worker_running
+    if _worker_running:
+        raise HTTPException(409, "Detén el worker antes de reiniciar")
+
+    # 1. estado persistente a cero (loops, total_sent, contacted_names)
+    fresh_state = {"loops": 0, "total_sent": 0, "last_run": None, "contacted_names": []}
+    with open("worker_state.json", "w") as f:
+        json.dump(fresh_state, f, indent=2)
+
+    # 2. borrar todos los archivos de corridas anteriores (evita mezclar loops)
+    patterns = [
+        "data/leads_raw_*.json", "data/leads_scored_*.json",
+        "data/leads_ready_*.json", "data/send_results_*.json",
+        "leads_raw.json", "leads_scored.json",
+        "leads_ready.json", "send_results.json", "tracking_events.json",
+    ]
+    for pattern in patterns:
+        for f_path in glob.glob(pattern):
+            os.remove(f_path)
+
+    return {"ok": True, "message": "Estado reiniciado. La próxima búsqueda empieza desde cero."}
 
 # ─────────────────────────────────────────────
 #  ENTRY POINT

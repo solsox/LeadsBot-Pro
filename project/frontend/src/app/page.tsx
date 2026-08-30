@@ -13,6 +13,7 @@ type Lead = {
 };
 
 type SearchConfig = { query: string; zone: string };
+type SearchMode = { label: string; max_results_per_query: number };
 type Tab = "exec" | "leads" | "charts";
 
 const PRIORITY_COLOR: Record<string, string> = {
@@ -27,6 +28,8 @@ export default function Home() {
   const [leads,      setLeads]      = useState<Lead[]>([]);
   const [metrics,    setMetrics]    = useState<any>({});
   const [configs,    setConfigs]    = useState<SearchConfig[]>([]);
+  const [modeOptions, setModeOptions] = useState<Record<string, SearchMode>>({});
+  const [mode,        setMode]        = useState<string>("medio");
   const [logs,       setLogs]       = useState<string[]>(["Sistema listo. Ejecuta el pipeline para comenzar."]);
   const [running,    setRunning]    = useState(false);
   const [selected,   setSelected]   = useState<Set<string>>(new Set());
@@ -65,6 +68,30 @@ export default function Home() {
     } catch {}
   }, []);
 
+  const fetchModeConfig = useCallback(async () => {
+    try {
+      const [optsRes, curRes] = await Promise.all([
+        fetch(`${API}/config/modes`),
+        fetch(`${API}/config/mode`),
+      ]);
+      if (optsRes.ok) setModeOptions(await optsRes.json());
+      if (curRes.ok) setMode((await curRes.json()).mode);
+    } catch {}
+  }, []);
+
+  const saveMode = async (newMode: string) => {
+    setMode(newMode);
+    try {
+      await fetch(`${API}/config/mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: newMode }),
+      });
+      addLog(`✓ Modo de búsqueda: ${modeOptions[newMode]?.label ?? newMode}`);
+      showToast("Modo actualizado");
+    } catch { addLog("✗ No se pudo guardar el modo"); }
+  };
+
   const fetchAll = useCallback(async () => {
     await Promise.all([fetchLeadsAndMetrics(), fetchConfig()]);
   }, [fetchLeadsAndMetrics, fetchConfig]);
@@ -72,6 +99,7 @@ export default function Home() {
   // La config de búsquedas solo se carga UNA VEZ al abrir la página.
   // Así nunca se pisa lo que el usuario está escribiendo.
   useEffect(() => { fetchConfig(); }, [fetchConfig]);
+  useEffect(() => { fetchModeConfig(); }, [fetchModeConfig]);
   useEffect(() => { fetchLeadsAndMetrics(); }, [fetchLeadsAndMetrics]);
   useEffect(() => {
     const t = setInterval(fetchLeadsAndMetrics, 30000);
@@ -101,6 +129,26 @@ export default function Home() {
       }
     } catch { addLog("✗ Error conectando con backend"); setRunning(false); }
   };
+
+  const [resetting, setResetting] = useState(false);
+
+const resetSearch = async () => {
+  if (!window.confirm("Esto borra el historial de contactados y las métricas acumuladas para empezar de cero. ¿Continuar?")) return;
+  setResetting(true);
+  try {
+    const r = await fetch(`${API}/worker/reset`, { method: "POST" });
+    if (r.ok) {
+      setMetrics({});
+      setLeads([]);
+      setLogs(["Sistema reiniciado. Ejecuta el pipeline para comenzar."]);
+      showToast("Búsqueda reiniciada");
+    } else {
+      const err = await r.json().catch(() => ({}));
+      addLog(`✗ No se pudo reiniciar: ${err.detail || r.status}`);
+    }
+  } catch { addLog("✗ Error conectando con backend"); }
+  setResetting(false);
+};
 
   const saveConfig = async () => {
     await fetch(`${API}/config/search`, {
@@ -280,6 +328,24 @@ export default function Home() {
               )}
             </div>
 
+            {/* modo de búsqueda */}
+            <div style={S.card}>
+              <div style={S.cardTitle}>Modo de búsqueda</div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                {Object.entries(modeOptions).map(([key, opt]) => (
+                  <button key={key} onClick={() => saveMode(key)}
+                    style={mode === key ? S.btnPrimary : S.btnGhost}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {mode && modeOptions[mode] && (
+                <p style={{ fontSize:12, color:"#9B9B97", marginTop:10, marginBottom:0 }}>
+                  Hasta {modeOptions[mode].max_results_per_query} fichas por búsqueda.
+                </p>
+              )}
+            </div>
+
             {/* búsquedas */}
             <div style={S.card}>
               <div style={S.cardTitle}>Búsquedas configuradas</div>
@@ -307,8 +373,14 @@ export default function Home() {
               <div style={{ display:"flex", gap:8, marginTop:16 }}>
                 <button onClick={addConfig} style={S.btnGhost}>+ Añadir fila</button>
                 <button onClick={saveConfig} style={S.btnPrimary}>Guardar configuración</button>
+                <button onClick={resetSearch} disabled={resetting || running}
+    style={{ ...S.btnDanger, opacity: (resetting || running) ? 0.5 : 1, cursor: (resetting || running) ? "not-allowed" : "pointer" }}>
+    {resetting ? "⟳ Reiniciando..." : "↺ Reiniciar búsqueda"}
+  </button>
               </div>
             </div>
+
+
 
             {/* log */}
             <div style={S.card}>
