@@ -21,13 +21,453 @@ log = logging.getLogger(__name__)
 
 # Añade este diccionario arriba del todo
 QUERY_EXPANSIONS = {
-    "restaurantes": ["restaurantes", "comida rápida", "cafetería"],
-    "peluquerías":  ["peluquerías", "barbería", "salón de belleza"],
-    "heladería":    ["heladería", "gelatería", "paletas"],
-    "talleres":     ["taller mecánica", "mecánico automotriz", "taller automóviles"],
-    "clínicas":     ["clínica dental", "odontólogo", "dentista"],
-    "gimnasios":    ["gimnasio", "crossfit", "yoga"],
+
+    # =========================
+    # COMIDA Y RESTAURANTES
+    # =========================
+    "restaurante": [
+        "restaurante",
+        "comida rápida",
+        "pizzería",
+        "asadero",
+        "comida colombiana",
+        "comida típica",
+        "marisquería",
+        "sushi",
+        "comida japonesa",
+        "comida mexicana",
+        "comida italiana",
+        "hamburguesería",
+        "parrilla",
+        "steakhouse",
+        "pollería",
+        "restaurante familiar",
+        "restaurante gourmet",
+        "restaurante saludable",
+        "restaurante vegano",
+        "restaurante vegetariano",
+        "comida árabe",
+        "comida china",
+        "comida peruana",
+        "comida internacional",
+    ],
+
+    "cafetería": [
+        "cafetería",
+        "coffee shop",
+        "café",
+        "café especial",
+        "café artesanal",
+        "coffee house",
+        "café restaurante",
+        "brunch",
+        "café gourmet",
+    ],
+
+    "panadería": [
+        "panadería",
+        "pastelería",
+        "repostería",
+        "pan artesanal",
+        "panadería artesanal",
+        "dulcería",
+        "confitería",
+        "boulangerie",
+    ],
+
+    "heladería": [
+        "heladería",
+        "gelatería",
+        "helados",
+        "paletas",
+        "paletería",
+        "postres",
+        "postres artesanales",
+        "crepería",
+        "waffles",
+        "churros",
+    ],
+
+    # =========================
+    # BELLEZA
+    # =========================
+    "peluquería": [
+        "peluquería",
+        "barbería",
+        "barber shop",
+        "salón de belleza",
+        "salón de peluquería",
+        "estilista",
+        "peluquería masculina",
+        "peluquería femenina",
+        "hair salon",
+        "colorista",
+        "estudio de cabello",
+    ],
+
+    "estética": [
+        "estética",
+        "centro de estética",
+        "spa",
+        "spa urbano",
+        "estética facial",
+        "estética corporal",
+        "medicina estética",
+        "tratamientos faciales",
+        "tratamientos corporales",
+        "depilación",
+        "depilación láser",
+        "microblading",
+        "cejas",
+        "pestañas",
+        "lash studio",
+        "nail salon",
+        "manicure",
+        "pedicure",
+        "uñas",
+    ],
+
+    # =========================
+    # AUTOMOTRIZ
+    # =========================
+    "taller": [
+        "taller mecánica",
+        "taller automotriz",
+        "mecánico automotriz",
+        "taller automóviles",
+        "servicio automotriz",
+        "mecánica rápida",
+        "mecánica especializada",
+        "diagnóstico automotriz",
+        "electricidad automotriz",
+        "electromecánica",
+        "alineación y balanceo",
+        "centro de diagnóstico",
+        "latonería",
+        "pintura automotriz",
+        "detailing",
+        "lavado de autos",
+        "car wash",
+        "lubricentro",
+        "llantas",
+        "servicio de motos",
+        "taller de motos",
+        "mecánica de motos",
+    ],
+
+    "concesionario": [
+        "concesionario",
+        "venta de carros",
+        "venta de vehículos",
+        "autos usados",
+        "vehículos usados",
+        "carros usados",
+        "compra y venta de carros",
+        "motos",
+        "venta de motos",
+        "concesionario de motos",
+    ],
+
+    # =========================
+    # SALUD
+    # =========================
+    "clínica": [
+        "clínica",
+        "clínica dental",
+        "odontólogo",
+        "dentista",
+        "consultorio odontológico",
+        "odontología",
+        "ortodoncia",
+        "implantes dentales",
+        "diseño de sonrisa",
+        "endodoncia",
+        "periodoncia",
+        "odontopediatría",
+    ],
+
+    "salud": [
+        "consultorio médico",
+        "centro médico",
+        "médico especialista",
+        "fisioterapia",
+        "terapia física",
+        "psicología",
+        "nutricionista",
+        "nutrición",
+        "dermatología",
+        "oftalmología",
+        "ginecología",
+        "pediatría",
+        "cardiología",
+        "cirugía plástica",
+        "medicina deportiva",
+        "medicina alternativa",
+    ],
+
+    # =========================
+    # FITNESS Y DEPORTE
+    # =========================
+    "gimnasio": [
+        "gimnasio",
+        "gym",
+        "crossfit",
+        "yoga",
+        "pilates",
+        "boxeo",
+        "artes marciales",
+        "muay thai",
+        "jiu jitsu",
+        "entrenamiento funcional",
+        "personal trainer",
+        "entrenador personal",
+        "fitness",
+        "centro deportivo",
+        "academia deportiva",
+        "estudio fitness",
+        "spinning",
+        "calistenia",
+        "danza",
+        "escuela de fútbol",
+    ],
+
+    # =========================
+    # HOGAR Y CONSTRUCCIÓN
+    # =========================
+    "construcción": [
+        "constructora",
+        "empresa constructora",
+        "construcción",
+        "obras civiles",
+        "ingeniería civil",
+        "arquitectura",
+        "arquitecto",
+        "diseño arquitectónico",
+        "remodelaciones",
+        "remodelación de casas",
+        "interiorismo",
+        "diseño de interiores",
+        "carpintería",
+        "muebles a medida",
+        "cocinas integrales",
+        "vidriería",
+        "aluminio",
+        "ferretería",
+        "materiales de construcción",
+    ],
+
+    "hogar": [
+        "decoración",
+        "decoración de interiores",
+        "muebles",
+        "mueblería",
+        "tienda de muebles",
+        "colchones",
+        "cortinas",
+        "persianas",
+        "iluminación",
+        "lámparas",
+        "jardinería",
+        "paisajismo",
+        "piscinas",
+        "limpieza de casas",
+        "servicios de limpieza",
+    ],
+
+    # =========================
+    # MODA Y RETAIL
+    # =========================
+    "ropa": [
+        "tienda de ropa",
+        "boutique",
+        "moda",
+        "ropa femenina",
+        "ropa masculina",
+        "ropa deportiva",
+        "ropa infantil",
+        "ropa para mujer",
+        "ropa para hombre",
+        "streetwear",
+        "moda urbana",
+        "tienda de vestidos",
+        "vestidos de fiesta",
+        "ropa interior",
+    ],
+
+    "accesorios": [
+        "joyería",
+        "bisutería",
+        "relojería",
+        "tienda de accesorios",
+        "bolsos",
+        "carteras",
+        "zapatería",
+        "calzado",
+        "tenis",
+        "óptica",
+        "gafas",
+    ],
+
+    # =========================
+    # SERVICIOS PROFESIONALES
+    # =========================
+    "profesional": [
+        "abogado",
+        "bufete de abogados",
+        "firma de abogados",
+        "contador",
+        "contabilidad",
+        "consultoría",
+        "consultor empresarial",
+        "asesoría empresarial",
+        "agencia de marketing",
+        "agencia de publicidad",
+        "diseño gráfico",
+        "fotografía",
+        "productora audiovisual",
+        "agencia inmobiliaria",
+        "inmobiliaria",
+        "corredor de seguros",
+        "seguros",
+    ],
+
+    # =========================
+    # EDUCACIÓN
+    # =========================
+    "educación": [
+        "academia",
+        "instituto",
+        "escuela",
+        "colegio",
+        "universidad",
+        "educación",
+        "clases particulares",
+        "tutorías",
+        "academia de idiomas",
+        "inglés",
+        "escuela de música",
+        "academia de baile",
+        "academia de arte",
+        "curso",
+        "cursos",
+        "capacitación",
+        "formación profesional",
+    ],
+
+    # =========================
+    # TURISMO Y HOSPITALIDAD
+    # =========================
+    "turismo": [
+        "hotel",
+        "hostal",
+        "hostel",
+        "apartahotel",
+        "alojamiento",
+        "casa de huéspedes",
+        "glamping",
+        "finca turística",
+        "agencia de viajes",
+        "operador turístico",
+        "tours",
+        "excursiones",
+        "guía turístico",
+        "turismo",
+    ],
+
+    # =========================
+    # EVENTOS
+    # =========================
+    "eventos": [
+        "organización de eventos",
+        "event planner",
+        "wedding planner",
+        "bodas",
+        "decoración de eventos",
+        "salón de eventos",
+        "eventos empresariales",
+        "fotografía de bodas",
+        "fotógrafo",
+        "videógrafo",
+        "DJ",
+        "sonido para eventos",
+        "alquiler de eventos",
+        "fiestas",
+    ],
+
+    # =========================
+    # MASCOTAS
+    # =========================
+    "mascotas": [
+        "veterinaria",
+        "clínica veterinaria",
+        "pet shop",
+        "tienda de mascotas",
+        "peluquería canina",
+        "grooming",
+        "guardería canina",
+        "hotel para mascotas",
+        "adiestramiento canino",
+        "entrenamiento de perros",
+        "accesorios para mascotas",
+    ],
+
+    # =========================
+    # TECNOLOGÍA
+    # =========================
+    "tecnología": [
+        "tienda de tecnología",
+        "tienda de computadores",
+        "computadores",
+        "celulares",
+        "reparación de computadores",
+        "servicio técnico",
+        "reparación de celulares",
+        "electrónica",
+        "electrodomésticos",
+        "sistemas",
+        "empresa de tecnología",
+        "software",
+        "desarrollo de software",
+    ],
+
+    # =========================
+    # COMERCIO / E-COMMERCE
+    # =========================
+    "tienda": [
+        "tienda",
+        "local comercial",
+        "comercio",
+        "tienda especializada",
+        "distribuidor",
+        "distribuidora",
+        "mayorista",
+        "minorista",
+        "importadora",
+        "exportadora",
+        "showroom",
+    ],
+
+    # =========================
+    # SERVICIOS PARA EMPRESAS
+    # =========================
+    "empresa": [
+        "empresa",
+        "empresa de servicios",
+        "servicios empresariales",
+        "consultoría empresarial",
+        "outsourcing",
+        "BPO",
+        "recursos humanos",
+        "reclutamiento",
+        "selección de personal",
+        "logística",
+        "transporte",
+        "mensajería",
+        "seguridad privada",
+        "aseo empresarial",
+    ],
 }
+
 
 def expand_queries(configs: list) -> list:
     """Expande cada query con sus variantes automáticamente."""

@@ -75,23 +75,31 @@ class TrackEvent(BaseModel):
 #  HELPERS
 # ─────────────────────────────────────────────
 def load_json(path: str) -> list:
-    # intenta ruta directa primero
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    # busca el archivo más reciente en data/ (ordenado por Nº de loop real,
-    # no alfabéticamente — "10" < "2" como string, así que un sorted()
-    # normal deja de servir en cuanto hay 10+ loops)
+
     pattern = f"data/{path.replace('.json', '_*.json')}"
     files = glob.glob(pattern)
-    if files:
-        def loop_num(fname: str) -> int:
-            digits = "".join(ch for ch in fname.rsplit("_", 1)[-1] if ch.isdigit())
-            return int(digits) if digits else -1
-        files.sort(key=loop_num)
-        with open(files[-1], encoding="utf-8") as f:
-            return json.load(f)
-    return []
+    if not files:
+        return []
+
+    def loop_num(fname: str) -> int:
+        digits = "".join(ch for ch in fname.rsplit("_", 1)[-1] if ch.isdigit())
+        return int(digits) if digits else -1
+
+    files.sort(key=loop_num)  # de más viejo a más nuevo
+
+    # acumula TODOS los loops; si un negocio aparece en varios,
+    # se queda con la versión más reciente (dedup por nombre)
+    merged: dict[str, dict] = {}
+    for f in files:
+        with open(f, encoding="utf-8") as fh:
+            for item in json.load(fh):
+                key = item.get("name")
+                if key:
+                    merged[key] = item
+    return list(merged.values())
 
 def load_state() -> dict:
     if os.path.exists("worker_state.json"):
