@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+venv/
+env/
+.venv/
+
+# Entorno
+.env
+*.env
+
+# Datos generados por el pipeline
+project/backend/data/
+project/backend/leads_*.json
+project/backend/send_results.json
+project/backend/tracking_events.json
+project/backend/worker_state.json
+project/backend/worker.log
+project/backend/search_config.json
+
+# WhatsApp bot — logs de envíos (sí se versiona la data/ de entrada)
+WHATSAPP_IA/data/enviados_log.csv
+
+# Node
+node_modules/
+project/frontend/.next/
+project/frontend/out/
+
+# OS
+.DS_Store
+*.swp

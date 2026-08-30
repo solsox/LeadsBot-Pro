@@ -148,6 +148,11 @@ export default function Home() {
     addLog("↓ Exportando CSV...");
   };
 
+  const exportWhatsAppExcel = () => {
+    window.open(`${API}/export/whatsapp`, "_blank");
+    addLog("↓ Exportando Excel para WhatsApp...");
+  };
+
   const maxVal = Math.max(metrics.leads_scraped || 0, metrics.leads_qualified || 0, metrics.emails_sent || 0, 1);
 
   const TABS = [
@@ -503,7 +508,11 @@ export default function Home() {
               ))}
             </div>
 
-            <button onClick={exportCSV} style={{ ...S.btnPrimary, width:"100%", padding:"12px 0", textAlign:"center" as const }}>
+            <button onClick={exportWhatsAppExcel} style={{ ...S.btnPrimary, width:"100%", padding:"12px 0", textAlign:"center" as const, marginBottom:10 }}>
+              ↓ Exportar Excel para WhatsApp
+            </button>
+
+            <button onClick={exportCSV} style={{ ...S.btnGhost, width:"100%", padding:"12px 0", textAlign:"center" as const }}>
               ↓ Exportar leads como CSV
             </button>
           </div>

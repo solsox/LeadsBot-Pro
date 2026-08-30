@@ -316,6 +316,43 @@ def export_csv():
         headers={"Content-Disposition": "attachment; filename=leads.csv"}
     )
 
+@app.get("/export/whatsapp", tags=["export"])
+def export_whatsapp_excel():
+    """
+    Exporta los leads calificados (con teléfono) a un .xlsx con las columnas
+    name, phone, category — listo para meter en WHATSAPP_IA/data/ y correr el bot.
+    """
+    import pandas as pd, io, glob
+    from fastapi.responses import Response
+
+    todos = []
+    for f in sorted(glob.glob("data/leads_scored_*.json")):
+        todos += load_json(f)
+    if not todos:
+        todos = load_json("leads_scored.json")
+
+    seen = set()
+    rows = []
+    for l in todos:
+        name  = l.get("name")
+        phone = l.get("phone")
+        if not name or not phone or name in seen:
+            continue
+        seen.add(name)
+        rows.append({"name": name, "phone": phone, "category": l.get("category", "")})
+
+    df = pd.DataFrame(rows, columns=["name", "phone", "category"])
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False, engine="openpyxl")
+    buf.seek(0)
+
+    return Response(
+        content=buf.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=leads_whatsapp.xlsx"}
+    )
+
+
 @app.post("/worker/stop", tags=["worker"])
 def stop_worker():
     global _worker_running
