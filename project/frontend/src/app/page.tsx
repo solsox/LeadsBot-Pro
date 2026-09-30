@@ -7,20 +7,34 @@ type Lead = {
   name: string; category: string; zone: string;
   website: string | null; phone: string | null;
   score: number; priority: string; status: string;
-  email_subject?: string; email_body?: string;
+  email?: string; email_subject?: string; email_body?: string;
   whatsapp_msg?: string; address?: string;
   maps_url?: string; score_reasons?: string[];
 };
 
 type SearchConfig = { query: string; zone: string };
 type SearchMode = { label: string; max_results_per_query: number };
-type Tab = "exec" | "leads" | "charts";
+type Tab = "exec" | "leads" | "crm" | "engage" | "accounts" | "charts";
 
 const PRIORITY_COLOR: Record<string, string> = {
   high: "#E8442A", medium: "#D97706", low: "#6B7280"
 };
 const PRIORITY_BG: Record<string, string> = {
   high: "#FEF2F0", medium: "#FFFBEB", low: "#F9FAFB"
+};
+
+const STAGES = ["new", "contacted", "replied", "interested", "won", "lost"] as const;
+const STAGE_LABEL: Record<string, string> = {
+  new: "Nuevo", contacted: "Contactado", replied: "Respondió",
+  interested: "Interesado", won: "Cliente", lost: "Descartado",
+};
+const STAGE_COLOR: Record<string, string> = {
+  new: "#6B7280", contacted: "#D97706", replied: "#2563EB",
+  interested: "#7C3AED", won: "#16A34A", lost: "#9B9B97",
+};
+const STAGE_BG: Record<string, string> = {
+  new: "#F9FAFB", contacted: "#FFFBEB", replied: "#EFF6FF",
+  interested: "#F5F3FF", won: "#F0FDF4", lost: "#F7F7F5",
 };
 
 export default function Home() {
@@ -38,6 +52,17 @@ export default function Home() {
   const [sending,    setSending]    = useState<string | null>(null);
   const [toast,      setToast]      = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+
+  // ── Engage (campañas Gmail) ──
+  const [engageLeads, setEngageLeads] = useState<Lead[]>([]);
+  const [uploadingEmails, setUploadingEmails] = useState(false);
+  const [sendingCampaign, setSendingCampaign] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Cuentas de Email (Gmail) ──
+  const [emailAccount, setEmailAccount] = useState<any>(null);
+  const [emailForm, setEmailForm] = useState({ email: "", app_password: "", from_name: "" });
+  const [savingEmail, setSavingEmail] = useState(false);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -197,6 +222,118 @@ const resetSearch = async () => {
     setSending(null);
   };
 
+  const updateStatus = async (name: string, status: string) => {
+    // actualización optimista: cambia en pantalla de una, sin esperar la respuesta
+    setLeads(prev => prev.map(l => l.name === name ? { ...l, status } : l));
+    try {
+      const res = await fetch(`${API}/leads/${encodeURIComponent(name)}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) throw new Error();
+      addLog(`→ ${name}: movido a "${STAGE_LABEL[status]}"`);
+    } catch {
+      addLog(`✗ No se pudo actualizar el estado de ${name}`);
+      await fetchLeadsAndMetrics(); // revierte al valor real si falló
+    }
+  };
+
+  // ── Engage: leads con email, subir excel, generar y enviar campaña ──
+  const fetchEngageLeads = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/engage/leads`);
+      if (res.ok) setEngageLeads(await res.json());
+    } catch {}
+  }, []);
+
+  const uploadEmails = async (file: File) => {
+    setUploadingEmails(true);
+    addLog(`→ Subiendo ${file.name}...`);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API}/engage/upload-emails`, { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "error");
+      addLog(`✓ ${data.added} emails asociados a leads`);
+      showToast(`${data.added} emails cargados`);
+      await fetchEngageLeads();
+    } catch (e: any) {
+      addLog(`✗ Error subiendo emails: ${e.message || e}`);
+    }
+    setUploadingEmails(false);
+  };
+
+  const sendCampaign = async (names: string[]) => {
+    if (names.length === 0) return;
+    setSendingCampaign(true);
+    addLog(`→ Enviando campaña a ${names.length} leads...`);
+    try {
+      const res = await fetch(`${API}/engage/send-campaign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lead_names: names }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "error");
+      addLog(`✓ Campaña en cola: ${data.queued} emails`);
+      showToast(`Campaña enviada a ${data.queued} leads`);
+    } catch (e: any) {
+      addLog(`✗ Error enviando campaña: ${e.message || e}`);
+    }
+    setSendingCampaign(false);
+  };
+
+  // ── Cuentas de Email (Gmail) ──
+  const fetchEmailAccount = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/settings/email`);
+      if (res.ok) {
+        const data = await res.json();
+        setEmailAccount(data.email ? data : null);
+      }
+    } catch {}
+  }, []);
+
+  const saveEmailAccount = async () => {
+    if (!emailForm.email || !emailForm.app_password) {
+      showToast("Falta el email o la contraseña de aplicación");
+      return;
+    }
+    setSavingEmail(true);
+    try {
+      const res = await fetch(`${API}/settings/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: emailForm.email,
+          app_password: emailForm.app_password,
+          from_name: emailForm.from_name || "Tu Nombre",
+        }),
+      });
+      if (!res.ok) throw new Error();
+      addLog(`✓ Cuenta de Gmail conectada: ${emailForm.email}`);
+      showToast("Cuenta de Gmail conectada");
+      setEmailForm({ email: "", app_password: "", from_name: "" });
+      await fetchEmailAccount();
+    } catch {
+      addLog(`✗ Error conectando la cuenta de Gmail`);
+    }
+    setSavingEmail(false);
+  };
+
+  const disconnectEmailAccount = async () => {
+    await fetch(`${API}/settings/email`, { method: "DELETE" });
+    setEmailAccount(null);
+    addLog(`→ Cuenta de Gmail desconectada`);
+  };
+
+  useEffect(() => {
+    if (tab === "engage") fetchEngageLeads();
+    if (tab === "accounts") fetchEmailAccount();
+  }, [tab, fetchEngageLeads, fetchEmailAccount]);
+
   const sendSelected = async () => {
     const names = Array.from(selected);
     for (const name of names) await sendLead(name);
@@ -213,12 +350,16 @@ const resetSearch = async () => {
     addLog("↓ Exportando Excel para WhatsApp...");
   };
 
-  const maxVal = Math.max(metrics.leads_scraped || 0, metrics.leads_qualified || 0, metrics.emails_sent || 0, 1);
+  const maxVal = Math.max(metrics.leads_scraped || 0, metrics.leads_qualified || 0, 1);
+  const pipelineMax = Math.max(metrics.leads_qualified || 0, 1);
 
   const TABS = [
-    { key: "exec",   icon: "⚡", label: "Ejecución" },
-    { key: "leads",  icon: "◎",  label: "Leads" },
-    { key: "charts", icon: "▦",  label: "Métricas" },
+    { key: "exec",     icon: "⚡", label: "Ejecución" },
+    { key: "leads",    icon: "◎",  label: "Leads" },
+    { key: "crm",      icon: "▤",  label: "CRM" },
+    { key: "engage",   icon: "✉",  label: "Engage" },
+    { key: "accounts", icon: "⚙",  label: "Cuentas de Email" },
+    { key: "charts",   icon: "▦",  label: "Reports" },
   ] as const;
 
   const S = {
@@ -426,8 +567,8 @@ const resetSearch = async () => {
             </div>
 
             {/* tabla header */}
-            <div style={{ display:"grid", gridTemplateColumns:"36px 1fr 60px 130px 90px 80px", gap:12, padding:"10px 24px", background:"#F7F7F5", borderBottom:"1px solid #E8E8E6", flexShrink:0 }}>
-              {["", "Negocio", "Score", "Web", "Prioridad", ""].map((h, i) => (
+            <div style={{ display:"grid", gridTemplateColumns:"36px 1fr 60px 130px 90px 100px 30px", gap:12, padding:"10px 24px", background:"#F7F7F5", borderBottom:"1px solid #E8E8E6", flexShrink:0 }}>
+              {["", "Negocio", "Score", "Web", "Prioridad", "Estado", ""].map((h, i) => (
                 <span key={i} style={{ fontSize:11, fontWeight:600, color:"#9B9B97", textTransform:"uppercase", letterSpacing:"0.05em" }}>{h}</span>
               ))}
             </div>
@@ -448,7 +589,7 @@ const resetSearch = async () => {
                   <div key={lead.name} style={{ borderBottom:"1px solid #F0F0EE" }}>
                     {/* fila */}
                     <div onClick={() => setExpanded(isExp ? null : lead.name)}
-                      style={{ display:"grid", gridTemplateColumns:"36px 1fr 60px 130px 90px 80px", gap:12, padding:"12px 24px", cursor:"pointer", background: isSel ? "#FAFFFE" : "transparent", transition:"background 0.1s" }}>
+                      style={{ display:"grid", gridTemplateColumns:"36px 1fr 60px 130px 90px 100px 30px", gap:12, padding:"12px 24px", cursor:"pointer", background: isSel ? "#FAFFFE" : "transparent", transition:"background 0.1s" }}>
 
                       {/* checkbox */}
                       <div onClick={e => { e.stopPropagation(); toggleSelect(lead.name); }}
@@ -474,6 +615,13 @@ const resetSearch = async () => {
                       <div>
                         <span style={{ fontSize:11, fontWeight:500, padding:"3px 8px", borderRadius:20, background: pb, color: pc }}>
                           {lead.priority === "high" ? "Alta" : lead.priority === "medium" ? "Media" : "Baja"}
+                        </span>
+                      </div>
+
+                      {/* estado del pipeline */}
+                      <div>
+                        <span style={{ fontSize:11, fontWeight:500, padding:"3px 8px", borderRadius:20, background: STAGE_BG[lead.status || "new"], color: STAGE_COLOR[lead.status || "new"] }}>
+                          {STAGE_LABEL[lead.status || "new"]}
                         </span>
                       </div>
 
@@ -510,7 +658,7 @@ const resetSearch = async () => {
                           </button>
                         )}
 
-                        <div style={{ display:"flex", gap:8 }}>
+                        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
                           <button onClick={() => toggleSelect(lead.name)} style={isSel ? S.btnGreen : S.btnGhost}>
                             {isSel ? "✓ Seleccionado" : "+ Seleccionar"}
                           </button>
@@ -518,6 +666,19 @@ const resetSearch = async () => {
                             style={{ ...S.btnPrimary, opacity: (!lead.email_body || sending === lead.name) ? 0.4 : 1, cursor: !lead.email_body ? "not-allowed" : "pointer" }}>
                             {sending === lead.name ? "Enviando..." : "✉ Enviar email"}
                           </button>
+
+                          {lead.phone && (
+                            <select
+                              value={lead.status || "new"}
+                              onChange={e => updateStatus(lead.name, e.target.value)}
+                              onClick={e => e.stopPropagation()}
+                              style={{ fontSize:12, fontWeight:500, padding:"7px 10px", borderRadius:8, border:"1px solid #E8E8E6", background:"#FFFFFF", color:"#1A1A1A", cursor:"pointer" }}
+                            >
+                              {STAGES.map(s => (
+                                <option key={s} value={s}>{STAGE_LABEL[s]}</option>
+                              ))}
+                            </select>
+                          )}
                         </div>
                       </div>
                     )}
@@ -525,6 +686,160 @@ const resetSearch = async () => {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* ══ CRM (pipeline tipo Kanban) ══ */}
+        {tab === "crm" && (
+          <div style={S.scroll}>
+            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:"#1A1A1A" }}>CRM</h2>
+            <p style={{ fontSize:13, color:"#9B9B97", marginBottom:24 }}>Tu pipeline de leads, etapa por etapa.</p>
+
+            <div style={{ display:"flex", gap:12, overflowX:"auto", paddingBottom:12 }}>
+              {STAGES.map(stage => {
+                const inStage = leads.filter(l => (l.status || "new") === stage);
+                return (
+                  <div key={stage} style={{ minWidth:240, flex:"0 0 240px", background:"#FFFFFF", border:"1px solid #E8E8E6", borderRadius:10, display:"flex", flexDirection:"column", maxHeight:"calc(100vh - 180px)" }}>
+                    <div style={{ padding:"12px 14px", borderBottom:"1px solid #F0F0EE", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                      <span style={{ fontSize:12, fontWeight:600, color: STAGE_COLOR[stage] }}>{STAGE_LABEL[stage]}</span>
+                      <span style={{ fontSize:11, color:"#9B9B97", background:"#F7F7F5", padding:"2px 7px", borderRadius:10 }}>{inStage.length}</span>
+                    </div>
+                    <div style={{ overflowY:"auto", padding:8, flex:1 }}>
+                      {inStage.length === 0 ? (
+                        <div style={{ fontSize:11, color:"#BCBCBA", textAlign:"center", padding:"20px 0" }}>—</div>
+                      ) : inStage.map(l => (
+                        <div key={l.name} style={{ background:"#F7F7F5", border:"1px solid #F0F0EE", borderRadius:8, padding:10, marginBottom:8 }}>
+                          <div style={{ fontSize:12, fontWeight:500, color:"#1A1A1A", marginBottom:2 }}>{l.name}</div>
+                          <div style={{ fontSize:10, color:"#9B9B97", marginBottom:8 }}>{l.category} · {l.zone}</div>
+                          {l.phone && (
+                            <select
+                              value={l.status || "new"}
+                              onChange={e => updateStatus(l.name, e.target.value)}
+                              style={{ width:"100%", fontSize:11, padding:"5px 6px", borderRadius:6, border:"1px solid #E8E8E6", background:"#FFFFFF", color:"#1A1A1A", cursor:"pointer" }}
+                            >
+                              {STAGES.map(s => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}
+                            </select>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ══ ENGAGE (campañas de Gmail) ══ */}
+        {tab === "engage" && (
+          <div style={S.scroll}>
+            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:"#1A1A1A" }}>Engage</h2>
+            <p style={{ fontSize:13, color:"#9B9B97", marginBottom:24 }}>Campañas de email por Gmail. Sube los emails de tus leads para empezar.</p>
+
+            <div style={S.card}>
+              <div style={S.cardTitle}>Subir emails</div>
+              <p style={{ fontSize:12, color:"#6B7280", marginBottom:12 }}>
+                Google Maps no expone emails — sube un CSV o Excel con columnas <b>name</b> y <b>email</b> (por ejemplo, de Hunter.io o del sitio web de cada negocio).
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                style={{ display:"none" }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) uploadEmails(f); e.target.value = ""; }}
+              />
+              <button onClick={() => fileInputRef.current?.click()} disabled={uploadingEmails} style={{ ...S.btnGhost, opacity: uploadingEmails ? 0.5 : 1 }}>
+                {uploadingEmails ? "⟳ Subiendo..." : "↑ Subir CSV / Excel"}
+              </button>
+            </div>
+
+            <div style={S.card}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                <div style={S.cardTitle}>Leads con email ({engageLeads.length})</div>
+                <button
+                  onClick={() => sendCampaign(engageLeads.filter(l => l.email_body).map(l => l.name))}
+                  disabled={sendingCampaign || !emailAccount || engageLeads.filter(l => l.email_body).length === 0}
+                  style={{ ...S.btnPrimary, opacity: (sendingCampaign || !emailAccount || engageLeads.filter(l => l.email_body).length === 0) ? 0.4 : 1 }}
+                >
+                  {sendingCampaign ? "Enviando..." : `✉ Enviar campaña (${engageLeads.filter(l => l.email_body).length})`}
+                </button>
+              </div>
+
+              {!emailAccount && (
+                <div style={{ fontSize:12, color:"#D97706", background:"#FFFBEB", border:"1px solid #FDE68A", borderRadius:8, padding:10, marginBottom:12 }}>
+                  ⚠ No tienes una cuenta de Gmail conectada. Ve a "Cuentas de Email" primero.
+                </div>
+              )}
+
+              {engageLeads.length === 0 ? (
+                <div style={{ textAlign:"center", padding:40, color:"#9B9B97", fontSize:13 }}>
+                  Ningún lead tiene email todavía — sube un archivo arriba.
+                </div>
+              ) : engageLeads.map(lead => (
+                <div key={lead.name} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:"1px solid #F0F0EE" }}>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:500, color:"#1A1A1A" }}>{lead.name}</div>
+                    <div style={{ fontSize:11, color:"#9B9B97" }}>{lead.email}</div>
+                  </div>
+                  {lead.email_body ? (
+                    <span style={{ fontSize:11, color:"#16A34A", background:"#F0FDF4", padding:"3px 8px", borderRadius:20 }}>✓ Mensaje listo</span>
+                  ) : (
+                    <button onClick={() => generateMsg(lead)} disabled={generating === lead.name} style={{ ...S.btnGhost, opacity: generating === lead.name ? 0.5 : 1 }}>
+                      {generating === lead.name ? "⟳ Generando..." : "✦ Generar mensaje"}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ══ CUENTAS DE EMAIL ══ */}
+        {tab === "accounts" && (
+          <div style={S.scroll}>
+            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:"#1A1A1A" }}>Cuentas de Email</h2>
+            <p style={{ fontSize:13, color:"#9B9B97", marginBottom:24 }}>Conecta la cuenta de Gmail que va a enviar tus campañas.</p>
+
+            {emailAccount ? (
+              <div style={S.card}>
+                <div style={S.cardTitle}>Cuenta conectada</div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div>
+                    <div style={{ fontSize:14, fontWeight:500, color:"#1A1A1A" }}>{emailAccount.email}</div>
+                    <div style={{ fontSize:11, color:"#9B9B97" }}>{emailAccount.smtp_host}:{emailAccount.smtp_port} · {emailAccount.from_name}</div>
+                  </div>
+                  <button onClick={disconnectEmailAccount} style={S.btnDanger}>Desconectar</button>
+                </div>
+              </div>
+            ) : (
+              <div style={S.card}>
+                <div style={S.cardTitle}>Conectar Gmail</div>
+                <p style={{ fontSize:12, color:"#6B7280", marginBottom:14 }}>
+                  Necesitas una <b>contraseña de aplicación</b> de Google (no tu contraseña normal).
+                  Actívala en tu cuenta de Google → Seguridad → Verificación en 2 pasos → Contraseñas de aplicaciones.
+                </p>
+                <div style={{ display:"grid", gap:10, maxWidth:420 }}>
+                  <div>
+                    <div style={{ fontSize:11, color:"#9B9B97", marginBottom:4 }}>Tu Gmail</div>
+                    <input style={S.input} placeholder="tu@gmail.com" value={emailForm.email}
+                      onChange={e => setEmailForm({ ...emailForm, email: e.target.value })} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize:11, color:"#9B9B97", marginBottom:4 }}>Contraseña de aplicación</div>
+                    <input style={S.input} type="password" placeholder="xxxx xxxx xxxx xxxx" value={emailForm.app_password}
+                      onChange={e => setEmailForm({ ...emailForm, app_password: e.target.value })} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize:11, color:"#9B9B97", marginBottom:4 }}>Nombre para mostrar</div>
+                    <input style={S.input} placeholder="Tu Nombre / Tu Agencia" value={emailForm.from_name}
+                      onChange={e => setEmailForm({ ...emailForm, from_name: e.target.value })} />
+                  </div>
+                  <button onClick={saveEmailAccount} disabled={savingEmail} style={{ ...S.btnPrimary, opacity: savingEmail ? 0.5 : 1, width:"fit-content" }}>
+                    {savingEmail ? "Conectando..." : "Conectar cuenta"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -537,12 +852,12 @@ const resetSearch = async () => {
             {/* grid métricas */}
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:24 }}>
               {[
-                { label:"Leads scrapeados",  value: metrics.leads_scraped   || 0 },
-                { label:"Leads calificados", value: metrics.leads_qualified || 0 },
-                { label:"Alta prioridad",    value: metrics.high_priority   || 0 },
-                { label:"Emails enviados",   value: metrics.emails_sent     || 0 },
-                { label:"Tasa apertura",     value: `${metrics.open_rate   || 0}%` },
-                { label:"Tasa respuesta",    value: `${metrics.reply_rate  || 0}%` },
+                { label:"Leads scrapeados",   value: metrics.leads_scraped   || 0 },
+                { label:"Leads calificados",  value: metrics.leads_qualified || 0 },
+                { label:"Alta prioridad",     value: metrics.high_priority   || 0 },
+                { label:"Enviados WhatsApp",  value: metrics.whatsapp_sent   || 0 },
+                { label:"Tasa de respuesta",  value: `${metrics.reply_rate  || 0}%` },
+                { label:"Clientes ganados",   value: metrics.pipeline?.won   || 0 },
               ].map(m => (
                 <div key={m.label} style={S.metricCard}>
                   <div style={S.metricLabel}>{m.label}</div>
@@ -551,22 +866,17 @@ const resetSearch = async () => {
               ))}
             </div>
 
-            {/* funnel */}
+            {/* pipeline (funnel tipo CRM) */}
             <div style={S.card}>
-              <div style={S.cardTitle}>Funnel de conversión</div>
-              {[
-                { label:"Scrapeados",  value: metrics.leads_scraped   || 0, color:"#1A1A1A" },
-                { label:"Calificados", value: metrics.leads_qualified || 0, color:"#2563EB" },
-                { label:"Enviados",    value: metrics.emails_sent     || 0, color:"#D97706" },
-                { label:"Respondieron",value: Math.round(((metrics.reply_rate||0)/100)*(metrics.emails_sent||0)), color:"#16A34A" },
-              ].map(b => (
+              <div style={S.cardTitle}>Pipeline de leads</div>
+              {STAGES.map(s => ({ label: STAGE_LABEL[s], value: metrics.pipeline?.[s] || 0, color: STAGE_COLOR[s] })).map(b => (
                 <div key={b.label} style={{ marginBottom:16 }}>
                   <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:6 }}>
                     <span style={{ color:"#4B5563" }}>{b.label}</span>
                     <span style={{ fontWeight:600, color:b.color }}>{b.value}</span>
                   </div>
                   <div style={{ height:6, background:"#F0F0EE", borderRadius:3, overflow:"hidden" }}>
-                    <div style={{ height:"100%", width:`${Math.round((b.value/maxVal)*100)}%`, background:b.color, borderRadius:3, transition:"width 0.6s ease" }} />
+                    <div style={{ height:"100%", width:`${Math.round((b.value/pipelineMax)*100)}%`, background:b.color, borderRadius:3, transition:"width 0.6s ease" }} />
                   </div>
                 </div>
               ))}

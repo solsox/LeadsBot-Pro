@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Optional, List
 
 
-from fastapi              import FastAPI, HTTPException, BackgroundTasks, Query
+from fastapi              import FastAPI, HTTPException, BackgroundTasks, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic             import BaseModel
 import json
@@ -44,6 +44,7 @@ class LeadOut(BaseModel):
     name:          str
     address:       Optional[str] = None
     phone:         Optional[str] = None
+    email:         Optional[str] = None
     website:       Optional[str] = None
     rating:        Optional[float] = None
     score:         Optional[int] = None
@@ -111,6 +112,179 @@ _worker_running = False
 
 
 # ─────────────────────────────────────────────
+#  PIPELINE DE ESTADOS (tipo CRM / Instantly)
+#  new → contacted → replied → interested → won / lost
+# ─────────────────────────────────────────────
+STAGES     = ["new", "contacted", "replied", "interested", "won", "lost"]
+STAGE_RANK = {s: i for i, s in enumerate(STAGES)}
+
+STATUS_FILE  = "lead_status.json"
+WHATSAPP_LOG = os.path.join("..", "..", "WHATSAPP_IA", "data", "enviados_log.csv")
+
+def load_status_overlay() -> dict:
+    if os.path.exists(STATUS_FILE):
+        with open(STATUS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_status_overlay(overlay: dict) -> None:
+    with open(STATUS_FILE, "w", encoding="utf-8") as f:
+        json.dump(overlay, f, indent=2, ensure_ascii=False)
+
+def set_lead_status(phone: str, status: str, allow_downgrade: bool = False) -> None:
+    """Guarda el estado de un lead por teléfono. Por defecto nunca retrocede el pipeline solo."""
+    if not phone:
+        return
+    overlay = load_status_overlay()
+    current = overlay.get(phone, {}).get("status", "new")
+    if not allow_downgrade and STAGE_RANK.get(status, 0) < STAGE_RANK.get(current, 0):
+        return
+    overlay[phone] = {"status": status, "updated_at": datetime.now().isoformat()}
+    save_status_overlay(overlay)
+
+def sync_whatsapp_sent() -> None:
+    """
+    Lee WHATSAPP_IA/data/enviados_log.csv (el log real que escribe el bot al enviar)
+    y marca como 'contacted' a cualquier lead que siga en 'new'. Cero pasos manuales.
+    """
+    if not os.path.exists(WHATSAPP_LOG):
+        return
+    try:
+        import csv
+        overlay = load_status_overlay()
+        changed = False
+        with open(WHATSAPP_LOG, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                phone = (row.get("phone") or "").strip()
+                if not phone:
+                    continue
+                current = overlay.get(phone, {}).get("status", "new")
+                if STAGE_RANK.get(current, 0) < STAGE_RANK["contacted"]:
+                    overlay[phone] = {"status": "contacted", "updated_at": datetime.now().isoformat()}
+                    changed = True
+        if changed:
+            save_status_overlay(overlay)
+    except Exception as e:
+        log.warning(f"No se pudo sincronizar el log de WhatsApp: {e}")
+
+def apply_status_overlay(leads: list) -> list:
+    overlay = load_status_overlay()
+    for l in leads:
+        phone = l.get("phone")
+        if phone and phone in overlay:
+            l["status"] = overlay[phone]["status"]
+        else:
+            l.setdefault("status", "new")
+    return leads
+
+
+# ─────────────────────────────────────────────
+#  CUENTAS DE EMAIL (Gmail) — tipo "Email Accounts" de Instantly
+# ─────────────────────────────────────────────
+EMAIL_SETTINGS_FILE = "email_settings.json"
+
+class EmailSettings(BaseModel):
+    smtp_host:    Optional[str] = "smtp.gmail.com"
+    smtp_port:    Optional[int] = 587
+    email:        str
+    app_password: str
+    from_name:    Optional[str] = "Tu Nombre"
+
+def load_email_settings() -> dict:
+    if os.path.exists(EMAIL_SETTINGS_FILE):
+        with open(EMAIL_SETTINGS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+@app.get("/settings/email", tags=["settings"])
+def get_email_settings():
+    """Devuelve la config de la cuenta de Gmail conectada (sin exponer la contraseña real)."""
+    s = load_email_settings()
+    if s.get("app_password"):
+        s = {**s, "app_password": "••••••••"}
+    return s
+
+@app.post("/settings/email", tags=["settings"])
+def save_email_settings(body: EmailSettings):
+    """Guarda/actualiza la cuenta de Gmail que se usa para enviar campañas."""
+    with open(EMAIL_SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(body.dict(), f, indent=2, ensure_ascii=False)
+    return {"ok": True, "connected": True, "email": body.email}
+
+@app.delete("/settings/email", tags=["settings"])
+def disconnect_email():
+    if os.path.exists(EMAIL_SETTINGS_FILE):
+        os.remove(EMAIL_SETTINGS_FILE)
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────
+#  EMAILS DE LEADS (overlay: name -> email)
+#  Se suben manualmente porque el scraper de Maps no expone emails.
+# ─────────────────────────────────────────────
+LEAD_EMAILS_FILE = "lead_emails.json"
+
+def load_lead_emails() -> dict:
+    if os.path.exists(LEAD_EMAILS_FILE):
+        with open(LEAD_EMAILS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_lead_emails(d: dict) -> None:
+    with open(LEAD_EMAILS_FILE, "w", encoding="utf-8") as f:
+        json.dump(d, f, indent=2, ensure_ascii=False)
+
+def apply_email_overlay(leads: list) -> list:
+    emails = load_lead_emails()
+    for l in leads:
+        if l.get("name") in emails:
+            l["email"] = emails[l["name"]]
+    return leads
+
+@app.post("/engage/upload-emails", tags=["engage"])
+async def upload_emails(file: UploadFile = File(...)):
+    """Sube un CSV/XLSX con columnas 'name' y 'email' y las asocia a los leads existentes."""
+    import pandas as pd, io
+    content = await file.read()
+    try:
+        if file.filename.lower().endswith(".csv"):
+            df = pd.read_csv(io.BytesIO(content))
+        else:
+            df = pd.read_excel(io.BytesIO(content))
+    except Exception as e:
+        raise HTTPException(400, f"No pude leer el archivo: {e}")
+
+    cols = {str(c).lower().strip(): c for c in df.columns}
+    if "name" not in cols or "email" not in cols:
+        raise HTTPException(400, "El archivo debe tener columnas 'name' y 'email'")
+
+    emails = load_lead_emails()
+    added = 0
+    for _, row in df.iterrows():
+        name  = str(row[cols["name"]]).strip()
+        email = str(row[cols["email"]]).strip()
+        if name and email and "@" in email and name.lower() != "nan":
+            emails[name] = email
+            added += 1
+    save_lead_emails(emails)
+    return {"ok": True, "added": added, "total": len(emails)}
+
+@app.get("/engage/leads", tags=["engage"])
+def get_engage_leads():
+    """Leads que ya tienen email asociado (candidatos a campaña de Gmail)."""
+    sync_whatsapp_sent()
+    scored = load_json("leads_scored.json")
+    ready  = load_json("leads_ready.json")
+    leads = []
+    for l in scored:
+        match = next((r for r in ready if r["name"] == l["name"]), None)
+        leads.append(match if match else l)
+    leads = apply_status_overlay(leads)
+    leads = apply_email_overlay(leads)
+    return [l for l in leads if l.get("email")]
+
+
+# ─────────────────────────────────────────────
 #  RUTAS: LEADS
 # ─────────────────────────────────────────────
 @app.get("/leads", response_model=List[LeadOut], tags=["leads"])
@@ -120,13 +294,15 @@ def get_leads(
     limit:    int = Query(50, le=200),
 ):
     """Lista todos los leads calificados."""
+    sync_whatsapp_sent()
     scored = load_json("leads_scored.json")
     ready  = load_json("leads_ready.json")
     ready_names = {r["name"] for r in ready}
     leads = []
     for l in scored:
         match = next((r for r in ready if r["name"] == l["name"]), None)
-        leads.append(match if match else l)    
+        leads.append(match if match else l)
+    leads = apply_status_overlay(leads)
     if priority:
         leads = [l for l in leads if l.get("priority") == priority]
     if status:
@@ -144,6 +320,33 @@ def get_lead(lead_name: str):
     return match
 
 
+class StatusUpdate(BaseModel):
+    status: str  # uno de STAGES
+
+@app.post("/leads/{lead_name}/status", tags=["leads"])
+def update_lead_status(lead_name: str, body: StatusUpdate):
+    """Mueve un lead manualmente en el pipeline (ej: marcar 'Respondió' o 'Cliente')."""
+    if body.status not in STAGES:
+        raise HTTPException(400, f"status inválido, debe ser uno de: {STAGES}")
+    scored = load_json("leads_scored.json")
+    lead = next((l for l in scored if l["name"] == lead_name), None)
+    if not lead:
+        raise HTTPException(404, "Lead no encontrado")
+    phone = lead.get("phone")
+    if not phone:
+        raise HTTPException(400, "Este lead no tiene teléfono, no se puede trackear en el pipeline")
+    set_lead_status(phone, body.status, allow_downgrade=True)
+    return {"ok": True, "name": lead_name, "status": body.status}
+
+
+@app.get("/pipeline", tags=["leads"])
+def get_pipeline():
+    """Conteo de leads por etapa del pipeline (para el tablero tipo CRM)."""
+    sync_whatsapp_sent()
+    scored = apply_status_overlay(load_json("leads_scored.json"))
+    return {stage: sum(1 for l in scored if l.get("status", "new") == stage) for stage in STAGES}
+
+
 @app.post("/leads/{lead_name}/send", tags=["leads"])
 def send_to_lead(lead_name: str, background_tasks: BackgroundTasks):
     """Envía email manualmente a un lead específico."""
@@ -151,6 +354,13 @@ def send_to_lead(lead_name: str, background_tasks: BackgroundTasks):
     lead  = next((l for l in leads if l["name"] == lead_name), None)
     if not lead:
         raise HTTPException(404, "Lead no encontrado")
+
+    lead = dict(lead)
+    emails = load_lead_emails()
+    if lead["name"] in emails:
+        lead["email"] = emails[lead["name"]]
+    if not lead.get("email"):
+        raise HTTPException(400, "Este lead no tiene email. Súbelo en la pestaña Engage.")
 
     def _send():
         from sender import EmailSender
@@ -162,31 +372,65 @@ def send_to_lead(lead_name: str, background_tasks: BackgroundTasks):
     return {"message": f"Enviando email a {lead_name}"}
 
 
+class CampaignRequest(BaseModel):
+    lead_names: List[str]
+
+@app.post("/engage/send-campaign", tags=["engage"])
+def send_campaign(body: CampaignRequest, background_tasks: BackgroundTasks):
+    """Envía una campaña de Gmail a varios leads de una vez (necesitan email + mensaje generado)."""
+    scored = load_json("leads_scored.json")
+    ready  = load_json("leads_ready.json")
+    emails = load_lead_emails()
+
+    targets = []
+    for name in body.lead_names:
+        lead = next((l for l in ready if l["name"] == name), None) or next((l for l in scored if l["name"] == name), None)
+        if not lead:
+            continue
+        lead = dict(lead)
+        if name in emails:
+            lead["email"] = emails[name]
+        if lead.get("email") and lead.get("email_body"):
+            targets.append(lead)
+
+    if not targets:
+        raise HTTPException(400, "Ninguno de los leads seleccionados tiene email + mensaje generado")
+
+    def _run():
+        from sender import EmailSender, save_results
+        sender  = EmailSender()
+        results = sender.send_batch(targets)
+        save_results(results)
+        log.info(f"Campaña Gmail: {sum(1 for r in results if r.success)}/{len(targets)} enviados")
+
+    background_tasks.add_task(_run)
+    return {"ok": True, "queued": len(targets)}
+
+
 # ─────────────────────────────────────────────
 #  RUTAS: MÉTRICAS
 # ─────────────────────────────────────────────
 @app.get("/metrics", tags=["metrics"])
 def get_metrics():
     """Métricas generales del agente."""
+    sync_whatsapp_sent()
     raw    = load_json("leads_raw.json")
     scored = load_json("leads_scored.json")
     ready  = load_json("leads_ready.json")
-    sent   = load_json("send_results.json")
 
-    sent_ok    = [r for r in sent if r.get("success")]
-    opens      = load_json("tracking_events.json")
-    open_events = [e for e in opens if e.get("event") == "open"]
-    replies    = [e for e in opens if e.get("event") == "reply"]
+    scored = apply_status_overlay(scored)
+    pipeline = {stage: sum(1 for l in scored if l.get("status", "new") == stage) for stage in STAGES}
+    contacted_or_beyond = sum(pipeline[s] for s in STAGES if s != "new")
 
     return {
         "leads_scraped":    len(raw),
         "leads_qualified":  len(scored),
         "leads_ready":      len(ready),
-        "emails_sent":      len(sent_ok),
-        "open_rate":        round(len(open_events) / max(len(sent_ok), 1) * 100, 1),
-        "reply_rate":       round(len(replies)     / max(len(sent_ok), 1) * 100, 1),
+        "whatsapp_sent":    contacted_or_beyond,
+        "reply_rate":       round(pipeline["replied"] / max(contacted_or_beyond, 1) * 100, 1),
         "high_priority":    sum(1 for l in scored if l.get("priority") == "high"),
         "medium_priority":  sum(1 for l in scored if l.get("priority") == "medium"),
+        "pipeline":         pipeline,
     }
 
 

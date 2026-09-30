@@ -16,6 +16,9 @@ project/backend/leads_*.json
 project/backend/send_results.json
 project/backend/tracking_events.json
 project/backend/worker_state.json
+project/backend/lead_status.json
+project/backend/email_settings.json
+project/backend/lead_emails.json
 project/backend/worker.log
 project/backend/search_config.json
 

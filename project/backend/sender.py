@@ -13,14 +13,30 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────
-#  CONFIG SMTP — usar variables de entorno
+#  CONFIG SMTP — primero busca email_settings.json (configurado desde
+#  la pestaña "Cuentas de Email" del dashboard), si no existe usa .env
 # ─────────────────────────────────────────────
-SMTP_HOST     = os.getenv("SMTP_HOST",     "smtp-relay.brevo.com")
-SMTP_PORT     = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER     = os.getenv("SMTP_USER",     "")   # tu@gmail.com
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")   # app password de Google
-FROM_NAME     = os.getenv("FROM_NAME",     "Tu Nombre")
+SETTINGS_FILE = "email_settings.json"
 TRACKING_BASE = os.getenv("TRACKING_BASE", "https://tudominio.com/track")
+
+def _load_smtp_config() -> dict:
+    cfg = {
+        "smtp_host":    os.getenv("SMTP_HOST", "smtp.gmail.com"),
+        "smtp_port":    int(os.getenv("SMTP_PORT", "587")),
+        "email":        os.getenv("SMTP_USER", ""),
+        "app_password": os.getenv("SMTP_PASSWORD", ""),
+        "from_name":    os.getenv("FROM_NAME", "Tu Nombre"),
+    }
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, encoding="utf-8") as f:
+                saved = json.load(f)
+            for k in cfg:
+                if saved.get(k):
+                    cfg[k] = saved[k]
+        except Exception as e:
+            log.warning(f"No pude leer {SETTINGS_FILE}: {e}")
+    return cfg
 
 DELAY_BETWEEN_EMAILS = 45   # segundos entre envíos (evitar spam filters)
 MAX_PER_DAY          = 50   # límite diario
@@ -44,17 +60,23 @@ class SendResult:
 class EmailSender:
 
     def __init__(self):
+        cfg = _load_smtp_config()
+        self.smtp_host     = cfg["smtp_host"]
+        self.smtp_port     = cfg["smtp_port"]
+        self.smtp_user     = cfg["email"]
+        self.smtp_password = cfg["app_password"]
+        self.from_name     = cfg["from_name"]
         self._validate_config()
 
     def send_batch(self, leads: list[dict]) -> list[SendResult]:
         results = []
         sent    = 0
 
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+        with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
             server.ehlo()
             server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            log.info(f"✅ SMTP conectado como {SMTP_USER}")
+            server.login(self.smtp_user, self.smtp_password)
+            log.info(f"✅ SMTP conectado como {self.smtp_user}")
 
             for lead in leads:
                 if sent >= MAX_PER_DAY:
@@ -84,17 +106,17 @@ class EmailSender:
         if not email:
             return SendResult(lead["name"], "", False, "sin email")
 
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+        with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
             server.ehlo()
             server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.login(self.smtp_user, self.smtp_password)
             return self._send_one(server, lead, email)
 
     # ── construcción del email ────────────────────────────────────────────
     def _send_one(self, server: smtplib.SMTP, lead: dict, to_email: str) -> SendResult:
         try:
             msg = self._build_mime(lead, to_email)
-            server.sendmail(SMTP_USER, to_email, msg.as_string())
+            server.sendmail(self.smtp_user, to_email, msg.as_string())
             return SendResult(
                 lead_name  = lead["name"],
                 email      = to_email,
@@ -106,7 +128,7 @@ class EmailSender:
 
     def _build_mime(self, lead: dict, to_email: str) -> MIMEMultipart:
         msg = MIMEMultipart("alternative")
-        msg["From"]       = f"{FROM_NAME} <{SMTP_USER}>"
+        msg["From"]       = f"{self.from_name} <{self.smtp_user}>"
         msg["To"]         = to_email
         msg["Subject"]    = lead.get("email_subject", "Hola desde nuestra agencia")
         msg["Message-ID"] = f"<{int(time.time())}.{lead['name'][:8]}@agencia>"
@@ -145,10 +167,11 @@ class EmailSender:
         return lead.get("email")
 
     def _validate_config(self) -> None:
-        if not SMTP_USER or not SMTP_PASSWORD:
+        if not self.smtp_user or not self.smtp_password:
             raise ValueError(
-                "Faltan SMTP_USER y/o SMTP_PASSWORD en variables de entorno.\n"
-                "Para Gmail: activa 'Contraseñas de aplicaciones' en tu cuenta."
+                "No hay una cuenta de Gmail conectada. Ve a la pestaña "
+                "'Cuentas de Email' del dashboard y conéctala (usa una "
+                "contraseña de aplicación de Google, no tu contraseña normal)."
             )
 
 
