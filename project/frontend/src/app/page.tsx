@@ -1,5 +1,9 @@
 "use client";
 import { useEffect, useState, useCallback, useRef } from "react";
+import Campaigns from "./Campaigns";
+import LeadsLibrary from "./LeadsLibrary";
+import { EngageLaunch, WhatsAppPanel } from "./EngageLaunch";
+import EmailScraper from "./EmailScraper";
 
 const API = "/api";
 
@@ -14,7 +18,7 @@ type Lead = {
 
 type SearchConfig = { query: string; zone: string };
 type SearchMode = { label: string; max_results_per_query: number };
-type Tab = "exec" | "leads" | "crm" | "engage" | "accounts" | "charts";
+type Tab = "exec" | "emails" | "leads" | "campaigns" | "crm" | "engage" | "accounts" | "charts";
 
 const PRIORITY_COLOR: Record<string, string> = {
   high: "#E8442A", medium: "#D97706", low: "#6B7280"
@@ -57,6 +61,9 @@ const THEMES = {
 
 export default function Home() {
   const [tab,        setTab]        = useState<Tab>("exec");
+  const [leadsView, setLeadsView] = useState<"lists" | "table">("lists");
+  const [pendingListId, setPendingListId] = useState<string | null>(null);
+  const [openCampaignId, setOpenCampaignId] = useState<string | null>(null);
   const [darkMode,   setDarkMode]   = useState(false);
 
   useEffect(() => {
@@ -83,7 +90,7 @@ export default function Home() {
   const logRef = useRef<HTMLDivElement>(null);
 
   // ── Engage (campañas Gmail + canal WhatsApp) ──
-  const [channelTab, setChannelTab] = useState<"gmail" | "whatsapp">("gmail");
+  const [channelTab, setChannelTab] = useState<"launch" | "gmail" | "whatsapp">("launch");
   const [engageLeads, setEngageLeads] = useState<Lead[]>([]);
   const [uploadingEmails, setUploadingEmails] = useState(false);
   const [sendingCampaign, setSendingCampaign] = useState(false);
@@ -438,7 +445,9 @@ const resetSearch = async () => {
 
   const TABS = [
     { key: "exec",     icon: "⚡", label: "Buscar" },
+    { key: "emails",   icon: "@",  label: "Scraper Emails" },
     { key: "leads",    icon: "◎",  label: "Leads" },
+    { key: "campaigns", icon: "▶",  label: "Campañas" },
     { key: "crm",      icon: "▤",  label: "CRM" },
     { key: "engage",   icon: "✉",  label: "Engage" },
     { key: "accounts", icon: "⚙",  label: "Cuentas de Email" },
@@ -633,8 +642,24 @@ const resetSearch = async () => {
           </div>
         )}
 
+        {/* ══ SCRAPER DE EMAILS ══ */}
+        {tab === "emails" && (
+          <EmailScraper T={T} API={API} showToast={showToast} />
+        )}
+
         {/* ══ LEADS ══ */}
         {tab === "leads" && (
+          <>
+            {/* selector de vista: listas (nuevo) o tabla con detalle y mensajes IA (anterior) */}
+            <div style={{ display:"flex", gap:4, padding:"10px 24px 0", background:T.cardBg, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
+              {([["lists","Listas e historial"],["table","Detalle y mensajes IA"]] as const).map(([k,l]) => (
+                <button key={k} onClick={() => setLeadsView(k)} style={{ background:"none", border:"none", padding:"6px 2px", marginRight:18, cursor:"pointer", fontSize:13, color: leadsView===k ? "#2563EB" : T.textSecondary, fontWeight: leadsView===k ? 600 : 400, borderBottom:`2px solid ${leadsView===k ? "#2563EB" : "transparent"}` }}>{l}</button>
+              ))}
+            </div>
+            {leadsView === "lists" ? (
+              <LeadsLibrary T={T} API={API} showToast={showToast}
+                onCreateCampaign={(id) => { setPendingListId(id); setTab("campaigns"); }} />
+            ) : (
           <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
 
             {/* barra top */}
@@ -780,6 +805,15 @@ const resetSearch = async () => {
               })}
             </div>
           </div>
+            )}
+          </>
+        )}
+
+        {/* ══ CAMPAÑAS ══ */}
+        {tab === "campaigns" && (
+          <Campaigns T={T} API={API} showToast={showToast}
+            pendingListId={pendingListId} onConsumed={() => setPendingListId(null)}
+            openCampaignId={openCampaignId} onOpened={() => setOpenCampaignId(null)} />
         )}
 
         {/* ══ CRM (pipeline tipo Kanban) ══ */}
@@ -832,6 +866,7 @@ const resetSearch = async () => {
             {/* sub-nav de canales */}
             <div style={{ display:"flex", gap:6, marginBottom:20, borderBottom:`1px solid ${T.border}`, paddingBottom:2 }}>
               {[
+                { key: "launch" as const,   label: "🚀  Lanzar campaña" },
                 { key: "gmail" as const,    label: "✉  Gmail" },
                 { key: "whatsapp" as const, label: "💬  WhatsApp" },
               ].map(c => (
@@ -851,6 +886,11 @@ const resetSearch = async () => {
                 </button>
               ))}
             </div>
+
+            {channelTab === "launch" && (
+              <EngageLaunch T={T} API={API} showToast={showToast}
+                onCampaignCreated={(id) => { setOpenCampaignId(id); setTab("campaigns"); }} />
+            )}
 
             {/* ── canal Gmail ── */}
             {channelTab === "gmail" && (
@@ -915,52 +955,7 @@ const resetSearch = async () => {
 
             {/* ── canal WhatsApp ── */}
             {channelTab === "whatsapp" && (
-              <>
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:12 }}>
-                  <div style={S.metricCard}>
-                    <div style={S.metricLabel}>Leads con teléfono</div>
-                    <div style={S.metricVal}>{whatsappSummary.total}</div>
-                  </div>
-                  <div style={S.metricCard}>
-                    <div style={S.metricLabel}>Pendientes</div>
-                    <div style={S.metricVal}>{whatsappSummary.pending}</div>
-                  </div>
-                  <div style={S.metricCard}>
-                    <div style={S.metricLabel}>Ya contactados</div>
-                    <div style={S.metricVal}>{whatsappSummary.sent}</div>
-                  </div>
-                </div>
-
-                <div style={S.card}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-                    <div style={S.cardTitle}>Bot de WhatsApp</div>
-                    <span style={{ fontSize:11, fontWeight:500, padding:"3px 10px", borderRadius:20, background: whatsappStatus.running ? "rgba(22,163,74,0.14)" : "rgba(107,114,128,0.10)", color: whatsappStatus.running ? "#16A34A" : "#6B7280" }}>
-                      {whatsappStatus.running ? "● Corriendo" : "○ Detenido"}
-                    </span>
-                  </div>
-
-                  <p style={{ fontSize:12, color:T.textSecondary, marginBottom:14 }}>
-                    Lee el Excel que exportaste en <b>Métricas → Exportar Excel para WhatsApp</b> (colócalo en <code>WHATSAPP_IA/data/</code>) y envía los mensajes usando WhatsApp Web. Necesita la pantalla de esta PC despierta y WhatsApp Web ya logueado.
-                  </p>
-
-                  <div style={{ display:"flex", gap:8, marginBottom:14 }}>
-                    <button onClick={exportWhatsAppExcel} style={S.btnGhost}>↓ Exportar Excel</button>
-                    {whatsappStatus.running ? (
-                      <button onClick={stopWhatsapp} style={S.btnDanger}>■ Detener bot</button>
-                    ) : (
-                      <button onClick={launchWhatsapp} disabled={launchingWa} style={{ ...S.btnPrimary, opacity: launchingWa ? 0.5 : 1 }}>
-                        {launchingWa ? "Lanzando..." : "▶ Lanzar bot de WhatsApp"}
-                      </button>
-                    )}
-                  </div>
-
-                  <div style={S.log}>
-                    {whatsappStatus.log_tail
-                      ? whatsappStatus.log_tail.split("\n").map((line, i) => <div key={i}>{line}</div>)
-                      : <div style={{ opacity:0.5 }}>Sin actividad todavía. Lanza el bot para ver el log aquí.</div>}
-                  </div>
-                </div>
-              </>
+              <WhatsAppPanel T={T} API={API} showToast={showToast} onGoLaunch={() => setChannelTab("launch")} />
             )}
           </div>
         )}

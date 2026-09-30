@@ -1,0 +1,12 @@
+[
+  {
+    "ts": "2026-09-30T16:48:20.701513+00:00",
+    "campaign_id": "c_d4abdff0",
+    "lead_key": "+573053725330",
+    "lead": "Dra. Paola Gallo | Odontología Estética e Integral – Especialista en Endodoncia",
+    "step": 0,
+    "channel": "whatsapp",
+    "ok": false,
+    "error": "/Users/sami/Desktop/LeadsBot-Pro-2/WHATSAPP_IA/venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020\n  warnings.warn("
+  }
+]

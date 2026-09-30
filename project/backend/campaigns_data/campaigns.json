@@ -1,0 +1,52 @@
+[
+  {
+    "id": "c_d4abdff0",
+    "name": "Clinicas",
+    "status": "paused",
+    "list_id": "i_6faa2012",
+    "steps": [
+      {
+        "id": "708002",
+        "channel": "whatsapp",
+        "delay_days": 3.0,
+        "subject": "",
+        "body": "Hola {{firstName}} 👋\n\nEn {{companyName}}, ¿cuántos clientes nuevos llegan cada mes y cuántos se pierden por no recibir respuesta a tiempo?\n\nEn Beaconic resolvemos los dos puntos con un solo sistema:\n\nCaptación: campañas y embudos que generan prospectos calificados cada mes.\nConversión: un asistente con inteligencia artificial que responde, califica y agenda por WhatsApp y web, las 24 horas.\n\nEl resultado: más ventas y una operación preparada para atender ese volumen de clientes.\n\n¿Le envío un diagnóstico gratuito de una página con las oportunidades que veamos en {{companyName}}?\n"
+      },
+      {
+        "id": "e42f6f",
+        "channel": "whatsapp",
+        "delay_days": 4.0,
+        "subject": "",
+        "body": "Hola {{firstName}}, retomo mi mensaje de hace unos días sobre la propuesta para {{companyName}}. ¿Te muestro una idea sin compromiso?"
+      },
+      {
+        "id": "995402",
+        "channel": "whatsapp",
+        "delay_days": 7.0,
+        "subject": "",
+        "body": "{{firstName}}, último mensaje de mi parte 🙌 Si más adelante quieres ver la propuesta para {{companyName}}, me escribes y te la envío."
+      }
+    ],
+    "schedule": {
+      "days": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "start": "09:00",
+      "end": "18:00",
+      "tz": "America/Bogota",
+      "daily_limit_email": 40,
+      "daily_limit_whatsapp": 25,
+      "gap_email_sec": 45,
+      "gap_whatsapp_sec": 60
+    },
+    "variables": {
+      "senderName": "Tu nombre",
+      "signature": "Saludos,\nTu nombre"
+    },
+    "created_at": "2026-09-30T16:41:48.201365+00:00"
+  }
+]

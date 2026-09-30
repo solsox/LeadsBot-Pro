@@ -1,0 +1,776 @@
+[
+  {
+    "id": "i_6faa2012",
+    "name": "Clinicas",
+    "source": "selection",
+    "created_at": "2026-09-30T16:41:48.199751+00:00",
+    "leads": [
+      {
+        "name": "Dra. Paola Gallo | Odontología Estética e Integral – Especialista en Endodoncia",
+        "phone": "+573053725330",
+        "category": "Dentista",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/drapaolagallolopez/",
+        "score": 10,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Dr. Mauricio Jiménez - Odontopediatra",
+        "phone": "+573148969708",
+        "category": "Dentista infantil",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/dr.mauriciojimenezu",
+        "score": 10,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Excélsior centro de estética y spa",
+        "phone": "+573186805930",
+        "category": "Spa",
+        "zone": "Cali, Colombia",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Estética Integral María Clemencia Muñoz",
+        "phone": "+573156172721",
+        "category": "Clínica de maquillaje permanente",
+        "zone": "Cali, Colombia",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Centro de Estetica y Spa Lorena Garcia",
+        "phone": "+573103518138",
+        "category": "Spa",
+        "zone": "Cali, Colombia",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Dra. Jenny Bejarano – Medicina Estética Integral",
+        "phone": "+573136920659",
+        "category": "Médico",
+        "zone": "Cali, Colombia",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Moldea Spa y Estetica",
+        "phone": "+573332810224",
+        "category": "Spa",
+        "zone": "Cali, Colombia",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Piel y Laser",
+        "phone": "+573175732053",
+        "category": "Clínica dermatológica",
+        "zone": "Cali, Colombia",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Lina Quesada Master en Micropigmentación | Estética Medica Avanzada | Cursos de Micropigmentación",
+        "phone": "+573125719950",
+        "category": "Spa",
+        "zone": "Cali, Colombia",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Luzk lashes oficial",
+        "phone": "+573225269955",
+        "category": "Tienda de belleza y salud",
+        "zone": "Cali, Colombia",
+        "website": "https://instagram.com/luzk_lashes_oficial",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Aoi Lash Studio",
+        "phone": "+573175432370",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/aoilashstudio",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Gema nails",
+        "phone": "+573053704471",
+        "category": "Salón de manicura y pedicura",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/gema_nailart",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Clinica Santa Clara",
+        "phone": "+573216940985",
+        "category": "Clínica de fisioterapia",
+        "zone": "Cali, Colombia",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "clinica mi boca",
+        "phone": "+573183118669",
+        "category": "Clínica dental",
+        "zone": "Cali, Colombia",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Viviana Plaza Ortodoncia",
+        "phone": "+573157045841",
+        "category": "Ortodoncista",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/vivianaplazaortodoncia",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Odontopediatria y Sedación Dra. Paola Andrea Diaz",
+        "phone": "+573214572664",
+        "category": "Dentista infantil",
+        "zone": "Cali, Colombia",
+        "score": 9,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Estetica & belleza",
+        "phone": "+23845208",
+        "category": "Esteticista facial",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Cocoa Spa Cali",
+        "phone": "+573137050562",
+        "category": "Spa",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/cocoaspacali/",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Claudia Giraldo estetica integral",
+        "phone": "+573104620165",
+        "category": "Spa y gimnasio",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/estetica_claudiagiraldo",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "formacion integral y artistica",
+        "phone": "+573192495046",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Viviana Conde",
+        "phone": "+23371062",
+        "category": "Servicio de depilación",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Blom Beauty Nails",
+        "phone": "+573116999198",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Cejas perfectas.",
+        "phone": "+26625343",
+        "category": "Centro comercial",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "studio lash brow",
+        "phone": "+573154434455",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "GLAMISSÉ STUDIO DE BELLEZA",
+        "phone": "+573043035403",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Karatulys Nails Spa",
+        "phone": "+573175798649",
+        "category": "Salón de manicura y pedicura",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "PRADA Peluqueria",
+        "phone": "+573004554383",
+        "category": "Peluquería",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Barberia Cut House Cali",
+        "phone": "+573181101390",
+        "category": "Barbería",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Love Beauty 💜",
+        "phone": "+573185304176",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Solo Uñas Kata",
+        "phone": "+23346850",
+        "category": "Salón de manicura y pedicura",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Dra. Cecilia Noy Sanchez",
+        "phone": "+573164826916",
+        "category": "Audiólogo",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Dra. Juliana Rojas Garcia-Rehabilitadora Oral",
+        "phone": "+573043351941",
+        "category": "Dentista cosmético",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/odjulianarojasg/",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "HOREB odontología integral",
+        "phone": "+573173766460",
+        "category": "Facultad de odontología",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Sandra Arturo Ortodoncia & Odontología Estética",
+        "phone": "+573174031653",
+        "category": "Ortodoncista",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Dra. Laura Virginia Solis Villa",
+        "phone": "+573207839120",
+        "category": "Ortodoncista",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Dentalogic Cali",
+        "phone": "+573154435837",
+        "category": "Ortodoncista",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Dental Implants Especialistas - Diseño de Sonrisa",
+        "phone": "+573052215348",
+        "category": "Periodoncista",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "cid CENTRO DE IMPLANTES DENTALES",
+        "phone": "+576025546017",
+        "category": "Periodoncista de implantes dentales",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Dr Brandoon Saldarriaga - Diseño de Sonrisa I Smile Desing",
+        "phone": "+573134393041",
+        "category": "Dentista cosmético",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/abe.dent",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Diseño de sonrisa Cali J&D clínica odontologica",
+        "phone": "+573239408656",
+        "category": "Clínica dental",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/jyd_clinicaespecializada",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Odontoespecialista. Consultorio Endodoncia. Dr. Gilbert Alfonso Morales / Consultorio Rehabilitación Oral Dr. Edward Alfonso",
+        "phone": "+576023928902",
+        "category": "Endodoncista",
+        "zone": "Cali, Colombia",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Dra Gise Odontopediatría y Ortopedia Maxilar",
+        "phone": "+573124730336",
+        "category": "Clínica dental",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/odontopediatra.dragise/",
+        "score": 8,
+        "priority": "high",
+        "email": ""
+      },
+      {
+        "name": "Centro de Estética Cali, Best Body depilación laser",
+        "phone": "+573103537003",
+        "category": "Esteticista",
+        "zone": "Cali, Colombia",
+        "website": "https://instagram.com/bestbodyestetica",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Silueta y Stylo Centro de Estética y Spa",
+        "phone": "+573160432261",
+        "category": "Comercio",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/siluetaystylo",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Equilibrium Spa",
+        "phone": "+573022463107",
+        "category": "Spa y gimnasio",
+        "zone": "Cali, Colombia",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Imperio Spa",
+        "phone": "+573181278313",
+        "category": "Spa",
+        "zone": "Cali, Colombia",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "MANGATA Centro de belleza y spa",
+        "phone": "+573006176891",
+        "category": "Spa y gimnasio",
+        "zone": "Cali, Colombia",
+        "website": "https://www.facebook.com/mangata.spa/",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "NOVUS Spa",
+        "phone": "+573142137457",
+        "category": "Spa",
+        "zone": "Cali, Colombia",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Azul Spa",
+        "phone": "+573053474598",
+        "category": "Spa",
+        "zone": "Cali, Colombia",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "SPA SAKURA",
+        "phone": "+573175986233",
+        "category": "Spa",
+        "zone": "Cali, Colombia",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Dra. Sandra Losada | Belleza Integral | Medicina Estética y Anti envejecimiento",
+        "phone": "+573215638650",
+        "category": "Spa terapéutico",
+        "zone": "Cali, Colombia",
+        "website": "https://sites.google.com/view/drasandralosadabellezaintegral",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Depilacion en frío Sugaring Perfect",
+        "phone": "+573155344570",
+        "category": "Servicio de depilación",
+        "zone": "Cali, Colombia",
+        "website": "https://instagram.com/epilacionnatural_",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Amadas Brows Spa",
+        "phone": "+573160559761",
+        "category": "Spa",
+        "zone": "Cali, Colombia",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Lash Dolls Spa De Pestañas.",
+        "phone": "+573104843919",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "website": "https://instagram.com/lashdollss",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "ST Lash Studio",
+        "phone": "+573008929824",
+        "category": "Salón de pestañas",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/stlashstudiocali",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "I'saloon Peluqueria y rastas.dreadlocks",
+        "phone": "+573113211854",
+        "category": "Peluquería",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/isaloondreadlocks.rastacali/",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Lucia Velasco Peluqueria Y Spa",
+        "phone": "+573172430478",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "website": "https://instagram.com/lucia_velasco_peluqueria",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Odontologia general y Cirugia de Cordales Cali",
+        "phone": "+573106910417",
+        "category": "Clínica dental",
+        "zone": "Cali, Colombia",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "CENTRO ODONTOLOGICO BURBANO",
+        "phone": "+576023374390",
+        "category": "Clínica dental",
+        "zone": "Cali, Colombia",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "consultorio odontológico DRALINA ALAPE",
+        "phone": "+573154810035",
+        "category": "Clínica dental",
+        "zone": "Cali, Colombia",
+        "website": "https://sites.google.com/view/dralinamarcealapeg",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Ortodoncia y Ortopedia Dentofacial | Dra. Katherine Álzate",
+        "phone": "+573164931801",
+        "category": "Ortodoncista",
+        "zone": "Cali, Colombia",
+        "website": "https://www.instagram.com/ortodonciakatherinealzateq",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Susana Gonzalez Periodoncia",
+        "phone": "+573162983342",
+        "category": "Clínica dental",
+        "zone": "Cali, Colombia",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Dr. Arlex David Gomez Odontopediatria y ortopedia maxilar",
+        "phone": "+573135264825",
+        "category": "Dentista infantil",
+        "zone": "Cali, Colombia",
+        "score": 7,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Estetica Piel Bella",
+        "phone": "+573178477260",
+        "category": "Barbería",
+        "zone": "Cali, Colombia",
+        "website": "https://www.facebook.com/Esteticapielbella/",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Mary Saenz Belleza Integral",
+        "phone": "+573167873970",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Pretty Lashes Cali",
+        "phone": "+573004700479",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "NOVUS estética",
+        "phone": "+573006048028",
+        "category": "Centro de depilación láser",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Micropigmentacion de Cejas Alto Nivel Cali, MCO & BELLEZA / Cursos de Micropigmentacion /",
+        "phone": "+573226470574",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Cejas Famosas Cali Limonar",
+        "phone": "+573225926166",
+        "category": "Tienda de belleza y salud",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "LA CEJA REINA",
+        "phone": "+573155702124",
+        "category": "Esteticista facial",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Free Nails Spa De Uñas",
+        "phone": "+573232502759",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Alexa🤍 Riascos Nails Col",
+        "phone": "+573192699397",
+        "category": "Salón de manicura y pedicura",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Berelesca Nails",
+        "phone": "+573157069235",
+        "category": "Salón de manicura y pedicura",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "bisout PELUQUERIA Y Barberia",
+        "phone": "+25137527",
+        "category": "Barbería",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Sala de Uñas",
+        "phone": "+573177103480",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Antonina Nails Spa",
+        "phone": "+573157220072",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "ORTODONCIA VALENTINA RIOS",
+        "phone": "+573189588453",
+        "category": "Ortodoncista",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Dra melissa arteaga",
+        "phone": "+573246034298",
+        "category": "Endodoncista",
+        "zone": "Cali, Colombia",
+        "score": 6,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "ESTÉTICA INTEGRAL DEL VALLE",
+        "phone": "+573026291723",
+        "category": "Clínica especializada",
+        "zone": "Cali, Colombia",
+        "website": "https://www.facebook.com/share/1D7kR7GwGM/",
+        "score": 5,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Micropigmentacion de cejas Encanto Mágico",
+        "phone": "+573105788505",
+        "category": "Esteticista facial",
+        "zone": "Cali, Colombia",
+        "website": "https://wa.link/wtf3qg",
+        "score": 5,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "VALENTINA FRANCO LASH. SPA | CALI / SUR |PESTAÑAS|EXTENSIONES DE PESTAÑAS | CEJAS| MICROPIGMENTACIÓN|MAQUILLAJE",
+        "phone": "+573158861937",
+        "category": "Centro de estética",
+        "zone": "Cali, Colombia",
+        "website": "https://wa.me/message/QSHPSULVFZT6O1",
+        "score": 5,
+        "priority": "medium",
+        "email": ""
+      },
+      {
+        "name": "Clínica Odontológica Dent Saine Sin Dolor",
+        "phone": "+573163683791",
+        "category": "Clínica dental",
+        "zone": "Cali, Colombia",
+        "website": "https://facebook.com/dentsainesindolorodontologia",
+        "score": 5,
+        "priority": "medium",
+        "email": ""
+      }
+    ]
+  }
+]
