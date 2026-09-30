@@ -19,6 +19,7 @@ project/backend/worker_state.json
 project/backend/lead_status.json
 project/backend/email_settings.json
 project/backend/lead_emails.json
+WHATSAPP_IA/run.log
 project/backend/worker.log
 project/backend/search_config.json
 

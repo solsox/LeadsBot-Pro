@@ -119,7 +119,8 @@ STAGES     = ["new", "contacted", "replied", "interested", "won", "lost"]
 STAGE_RANK = {s: i for i, s in enumerate(STAGES)}
 
 STATUS_FILE  = "lead_status.json"
-WHATSAPP_LOG = os.path.join("..", "..", "WHATSAPP_IA", "data", "enviados_log.csv")
+WHATSAPP_DIR = os.path.join("..", "..", "WHATSAPP_IA")
+WHATSAPP_LOG = os.path.join(WHATSAPP_DIR, "data", "enviados_log.csv")
 
 def load_status_overlay() -> dict:
     if os.path.exists(STATUS_FILE):
@@ -268,6 +269,83 @@ async def upload_emails(file: UploadFile = File(...)):
             added += 1
     save_lead_emails(emails)
     return {"ok": True, "added": added, "total": len(emails)}
+
+@app.get("/channels/whatsapp/exports", tags=["channels"])
+def whatsapp_export_summary():
+    """Leads listos para WhatsApp (tienen teléfono), y si ya se les envió mensaje."""
+    sync_whatsapp_sent()
+    scored = apply_status_overlay(load_json("leads_scored.json"))
+    with_phone = [l for l in scored if l.get("phone")]
+    return {
+        "total": len(with_phone),
+        "pending": sum(1 for l in with_phone if l.get("status", "new") == "new"),
+        "sent": sum(1 for l in with_phone if l.get("status", "new") != "new"),
+    }
+
+
+# ─────────────────────────────────────────────
+#  CANAL: WHATSAPP — lanzar/parar el bot desde el dashboard
+# ─────────────────────────────────────────────
+import subprocess
+
+WHATSAPP_RUN_LOG = os.path.join(WHATSAPP_DIR, "run.log")
+_whatsapp_process: Optional[subprocess.Popen] = None
+
+def _whatsapp_python() -> str:
+    """Usa el python del venv de WHATSAPP_IA si existe, si no el del sistema."""
+    venv_dir = os.path.join(WHATSAPP_DIR, "venv")
+    candidate = (
+        os.path.join(venv_dir, "Scripts", "python.exe") if sys.platform == "win32"
+        else os.path.join(venv_dir, "bin", "python")
+    )
+    return candidate if os.path.exists(candidate) else sys.executable
+
+@app.get("/channels/whatsapp/status", tags=["channels"])
+def whatsapp_status():
+    global _whatsapp_process
+    running = _whatsapp_process is not None and _whatsapp_process.poll() is None
+    log_tail = ""
+    if os.path.exists(WHATSAPP_RUN_LOG):
+        try:
+            with open(WHATSAPP_RUN_LOG, encoding="utf-8", errors="ignore") as f:
+                log_tail = "".join(f.readlines()[-40:])
+        except Exception:
+            pass
+    exit_code = None
+    if _whatsapp_process is not None and not running:
+        exit_code = _whatsapp_process.poll()
+    return {"running": running, "log_tail": log_tail, "exit_code": exit_code}
+
+@app.post("/channels/whatsapp/launch", tags=["channels"])
+def whatsapp_launch():
+    global _whatsapp_process
+    if _whatsapp_process is not None and _whatsapp_process.poll() is None:
+        raise HTTPException(400, "El bot de WhatsApp ya está corriendo")
+    if not os.path.isdir(WHATSAPP_DIR):
+        raise HTTPException(404, "No encontré la carpeta WHATSAPP_IA junto al proyecto")
+
+    script = os.path.join(WHATSAPP_DIR, "src", "main.py")
+    if not os.path.exists(script):
+        raise HTTPException(404, f"No encontré {script}")
+
+    log_f = open(WHATSAPP_RUN_LOG, "w", encoding="utf-8")
+    _whatsapp_process = subprocess.Popen(
+        [_whatsapp_python(), os.path.join("src", "main.py")],
+        cwd=WHATSAPP_DIR,
+        stdout=log_f,
+        stderr=subprocess.STDOUT,
+    )
+    log.info(f"🚀 Bot de WhatsApp lanzado (pid={_whatsapp_process.pid})")
+    return {"ok": True, "pid": _whatsapp_process.pid}
+
+@app.post("/channels/whatsapp/stop", tags=["channels"])
+def whatsapp_stop():
+    global _whatsapp_process
+    if _whatsapp_process is None or _whatsapp_process.poll() is not None:
+        raise HTTPException(400, "El bot no está corriendo")
+    _whatsapp_process.terminate()
+    return {"ok": True}
+
 
 @app.get("/engage/leads", tags=["engage"])
 def get_engage_leads():

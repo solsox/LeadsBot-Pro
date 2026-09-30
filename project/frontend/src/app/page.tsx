@@ -20,7 +20,7 @@ const PRIORITY_COLOR: Record<string, string> = {
   high: "#E8442A", medium: "#D97706", low: "#6B7280"
 };
 const PRIORITY_BG: Record<string, string> = {
-  high: "#FEF2F0", medium: "#FFFBEB", low: "#F9FAFB"
+  high: "rgba(232,68,42,0.12)", medium: "rgba(217,119,6,0.14)", low: "rgba(107,114,128,0.10)"
 };
 
 const STAGES = ["new", "contacted", "replied", "interested", "won", "lost"] as const;
@@ -32,13 +32,42 @@ const STAGE_COLOR: Record<string, string> = {
   new: "#6B7280", contacted: "#D97706", replied: "#2563EB",
   interested: "#7C3AED", won: "#16A34A", lost: "#9B9B97",
 };
+// tintes translúcidos: se ven bien tanto en modo claro como oscuro
 const STAGE_BG: Record<string, string> = {
-  new: "#F9FAFB", contacted: "#FFFBEB", replied: "#EFF6FF",
-  interested: "#F5F3FF", won: "#F0FDF4", lost: "#F7F7F5",
+  new: "rgba(107,114,128,0.10)", contacted: "rgba(217,119,6,0.14)", replied: "rgba(37,99,235,0.12)",
+  interested: "rgba(124,58,237,0.12)", won: "rgba(22,163,74,0.14)", lost: "rgba(107,114,128,0.10)",
 };
+
+const THEMES = {
+  light: {
+    bg: "#F7F7F5", sidebarBg: "#FFFFFF", border: "#E8E8E6", borderLight: "#F0F0EE",
+    text: "#1A1A1A", textSecondary: "#6B7280", textMuted: "#9B9B97",
+    cardBg: "#FFFFFF", inputBg: "#F7F7F5", navActiveBg: "#F0F0EE",
+    rowHover: "rgba(37,99,235,0.04)", logBg: "#1A1A1A", logText: "#E8E8E6",
+    accentBg: "#1A1A1A", accentText: "#FFFFFF",
+  },
+  dark: {
+    bg: "#0F0F11", sidebarBg: "#17171A", border: "#2A2A2E", borderLight: "#222225",
+    text: "#F3F3F1", textSecondary: "#A8A8A5", textMuted: "#75756F",
+    cardBg: "#1B1B1F", inputBg: "#232327", navActiveBg: "#28282D",
+    rowHover: "rgba(37,99,235,0.08)", logBg: "#000000", logText: "#D4D4D2",
+    accentBg: "#F3F3F1", accentText: "#111113",
+  },
+} as const;
 
 export default function Home() {
   const [tab,        setTab]        = useState<Tab>("exec");
+  const [darkMode,   setDarkMode]   = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("beacon-theme");
+    if (saved === "dark") setDarkMode(true);
+  }, []);
+  useEffect(() => {
+    localStorage.setItem("beacon-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
+
+  const T = THEMES[darkMode ? "dark" : "light"];
   const [leads,      setLeads]      = useState<Lead[]>([]);
   const [metrics,    setMetrics]    = useState<any>({});
   const [configs,    setConfigs]    = useState<SearchConfig[]>([]);
@@ -53,11 +82,16 @@ export default function Home() {
   const [toast,      setToast]      = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
-  // ── Engage (campañas Gmail) ──
+  // ── Engage (campañas Gmail + canal WhatsApp) ──
+  const [channelTab, setChannelTab] = useState<"gmail" | "whatsapp">("gmail");
   const [engageLeads, setEngageLeads] = useState<Lead[]>([]);
   const [uploadingEmails, setUploadingEmails] = useState(false);
   const [sendingCampaign, setSendingCampaign] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [whatsappStatus, setWhatsappStatus] = useState<{running:boolean; log_tail:string; exit_code:number|null}>({ running:false, log_tail:"", exit_code:null });
+  const [whatsappSummary, setWhatsappSummary] = useState<{total:number; pending:number; sent:number}>({ total:0, pending:0, sent:0 });
+  const [launchingWa, setLaunchingWa] = useState(false);
 
   // ── Cuentas de Email (Gmail) ──
   const [emailAccount, setEmailAccount] = useState<any>(null);
@@ -329,10 +363,59 @@ const resetSearch = async () => {
     addLog(`→ Cuenta de Gmail desconectada`);
   };
 
+  // ── Canal WhatsApp: lanzar/parar el bot desde el dashboard ──
+  const fetchWhatsappStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/channels/whatsapp/status`);
+      if (res.ok) setWhatsappStatus(await res.json());
+    } catch {}
+  }, []);
+
+  const fetchWhatsappSummary = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/channels/whatsapp/exports`);
+      if (res.ok) setWhatsappSummary(await res.json());
+    } catch {}
+  }, []);
+
+  const launchWhatsapp = async () => {
+    setLaunchingWa(true);
+    try {
+      const res = await fetch(`${API}/channels/whatsapp/launch`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "error");
+      addLog(`🚀 Bot de WhatsApp lanzado`);
+      showToast("Bot de WhatsApp corriendo");
+    } catch (e: any) {
+      addLog(`✗ No se pudo lanzar el bot: ${e.message || e}`);
+    }
+    setLaunchingWa(false);
+    fetchWhatsappStatus();
+  };
+
+  const stopWhatsapp = async () => {
+    try {
+      const res = await fetch(`${API}/channels/whatsapp/stop`, { method: "POST" });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.detail); }
+      addLog(`■ Bot de WhatsApp detenido`);
+    } catch (e: any) {
+      addLog(`✗ ${e.message || e}`);
+    }
+    fetchWhatsappStatus();
+  };
+
   useEffect(() => {
     if (tab === "engage") fetchEngageLeads();
     if (tab === "accounts") fetchEmailAccount();
-  }, [tab, fetchEngageLeads, fetchEmailAccount]);
+    if (tab === "engage" && channelTab === "whatsapp") { fetchWhatsappStatus(); fetchWhatsappSummary(); }
+  }, [tab, channelTab, fetchEngageLeads, fetchEmailAccount, fetchWhatsappStatus, fetchWhatsappSummary]);
+
+  // mientras el bot esté corriendo (o estemos viendo esa pestaña), refresca el status cada 3s
+  useEffect(() => {
+    if (tab !== "engage" || channelTab !== "whatsapp") return;
+    const t = setInterval(fetchWhatsappStatus, 3000);
+    return () => clearInterval(t);
+  }, [tab, channelTab, fetchWhatsappStatus]);
 
   const sendSelected = async () => {
     const names = Array.from(selected);
@@ -354,7 +437,7 @@ const resetSearch = async () => {
   const pipelineMax = Math.max(metrics.leads_qualified || 0, 1);
 
   const TABS = [
-    { key: "exec",     icon: "⚡", label: "Ejecución" },
+    { key: "exec",     icon: "⚡", label: "Buscar" },
     { key: "leads",    icon: "◎",  label: "Leads" },
     { key: "crm",      icon: "▤",  label: "CRM" },
     { key: "engage",   icon: "✉",  label: "Engage" },
@@ -364,45 +447,46 @@ const resetSearch = async () => {
 
   const S = {
     // layout
-    app:     { display:"flex", height:"100vh", background:"#F7F7F5", color:"#1A1A1A", fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", overflow:"hidden" } as React.CSSProperties,
-    sidebar: { width:240, background:"#FFFFFF", borderRight:"1px solid #E8E8E6", display:"flex", flexDirection:"column" as const, flexShrink:0 },
+    app:     { display:"flex", height:"100vh", background:T.bg, color:T.text, fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", overflow:"hidden", transition:"background 0.15s,color 0.15s" } as React.CSSProperties,
+    sidebar: { width:240, background:T.sidebarBg, borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column" as const, flexShrink:0 },
     main:    { flex:1, display:"flex", flexDirection:"column" as const, overflow:"hidden" },
     scroll:  { flex:1, overflowY:"auto" as const, padding:32 },
 
     // sidebar
-    logo:    { padding:"20px 16px 8px", borderBottom:"1px solid #E8E8E6", marginBottom:4 },
-    logoText:{ fontSize:16, fontWeight:700, color:"#1A1A1A", letterSpacing:"-0.02em" },
-    logoSub: { fontSize:11, color:"#9B9B97", marginTop:2 },
+    logo:    { padding:"20px 16px 8px", borderBottom:`1px solid ${T.border}`, marginBottom:4, display:"flex", alignItems:"center", justifyContent:"space-between" },
+    logoText:{ fontSize:16, fontWeight:700, color:T.text, letterSpacing:"-0.02em" },
+    logoSub: { fontSize:11, color:T.textMuted, marginTop:2 },
+    themeToggle: { width:28, height:28, borderRadius:7, border:`1px solid ${T.border}`, background:T.inputBg, color:T.text, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14 } as React.CSSProperties,
     navBtn:  (active: boolean): React.CSSProperties => ({
       display:"flex", alignItems:"center", gap:8, width:"100%",
       padding:"7px 12px", borderRadius:6, border:"none", cursor:"pointer",
       marginBottom:1, fontSize:13, textAlign:"left",
-      background: active ? "#F0F0EE" : "transparent",
-      color: active ? "#1A1A1A" : "#6B6B68",
+      background: active ? T.navActiveBg : "transparent",
+      color: active ? T.text : T.textSecondary,
       fontWeight: active ? 500 : 400,
     }),
-    statusBar: { padding:"12px 16px", borderTop:"1px solid #E8E8E6", fontSize:12, color:"#9B9B97" },
+    statusBar: { padding:"12px 16px", borderTop:`1px solid ${T.border}`, fontSize:12, color:T.textMuted },
 
     // cards
-    card:    { background:"#FFFFFF", border:"1px solid #E8E8E6", borderRadius:10, padding:"16px 20px", marginBottom:12 } as React.CSSProperties,
-    cardTitle:{ fontSize:11, fontWeight:600, color:"#9B9B97", textTransform:"uppercase" as const, letterSpacing:"0.06em", marginBottom:12 },
+    card:    { background:T.cardBg, border:`1px solid ${T.border}`, borderRadius:10, padding:"16px 20px", marginBottom:12 } as React.CSSProperties,
+    cardTitle:{ fontSize:11, fontWeight:600, color:T.textMuted, textTransform:"uppercase" as const, letterSpacing:"0.06em", marginBottom:12 },
 
     // inputs
-    input:   { width:"100%", background:"#F7F7F5", border:"1px solid #E8E8E6", borderRadius:6, padding:"8px 10px", fontSize:13, color:"#1A1A1A", outline:"none", fontFamily:"inherit" } as React.CSSProperties,
+    input:   { width:"100%", background:T.inputBg, border:`1px solid ${T.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, color:T.text, outline:"none", fontFamily:"inherit" } as React.CSSProperties,
 
     // buttons
-    btnPrimary: { padding:"9px 16px", background:"#1A1A1A", color:"#FFFFFF", border:"none", borderRadius:7, fontSize:13, fontWeight:500, cursor:"pointer", fontFamily:"inherit" } as React.CSSProperties,
-    btnGhost:   { padding:"7px 14px", background:"transparent", color:"#6B6B68", border:"1px solid #E8E8E6", borderRadius:7, fontSize:12, cursor:"pointer", fontFamily:"inherit" } as React.CSSProperties,
-    btnDanger:  { padding:"9px 16px", background:"#FEF2F0", color:"#E8442A", border:"1px solid #FECDC9", borderRadius:7, fontSize:13, fontWeight:500, cursor:"pointer", fontFamily:"inherit" } as React.CSSProperties,
-    btnGreen:   { padding:"7px 14px", background:"#F0FDF4", color:"#16A34A", border:"1px solid #BBF7D0", borderRadius:7, fontSize:12, cursor:"pointer", fontFamily:"inherit" } as React.CSSProperties,
+    btnPrimary: { padding:"9px 16px", background:T.accentBg, color:T.accentText, border:"none", borderRadius:7, fontSize:13, fontWeight:500, cursor:"pointer", fontFamily:"inherit" } as React.CSSProperties,
+    btnGhost:   { padding:"7px 14px", background:"transparent", color:T.textSecondary, border:`1px solid ${T.border}`, borderRadius:7, fontSize:12, cursor:"pointer", fontFamily:"inherit" } as React.CSSProperties,
+    btnDanger:  { padding:"9px 16px", background:"rgba(232,68,42,0.12)", color:"#E8442A", border:"1px solid rgba(232,68,42,0.35)", borderRadius:7, fontSize:13, fontWeight:500, cursor:"pointer", fontFamily:"inherit" } as React.CSSProperties,
+    btnGreen:   { padding:"7px 14px", background:"rgba(22,163,74,0.14)", color:"#16A34A", border:"1px solid rgba(22,163,74,0.35)", borderRadius:7, fontSize:12, cursor:"pointer", fontFamily:"inherit" } as React.CSSProperties,
 
     // log
-    log: { background:"#1A1A1A", borderRadius:8, padding:16, height:200, overflowY:"auto" as const, fontFamily:"'SF Mono',monospace", fontSize:11, lineHeight:1.8 },
+    log: { background:T.logBg, borderRadius:8, padding:16, height:200, overflowY:"auto" as const, fontFamily:"'SF Mono',monospace", fontSize:11, lineHeight:1.8, color:T.logText },
 
     // metric cards
-    metricCard: { background:"#FFFFFF", border:"1px solid #E8E8E6", borderRadius:10, padding:"16px 20px" } as React.CSSProperties,
-    metricVal:  { fontSize:28, fontWeight:700, lineHeight:1, marginTop:6, color:"#1A1A1A" },
-    metricLabel:{ fontSize:11, color:"#9B9B97", fontWeight:500 },
+    metricCard: { background:T.cardBg, border:`1px solid ${T.border}`, borderRadius:10, padding:"16px 20px" } as React.CSSProperties,
+    metricVal:  { fontSize:28, fontWeight:700, lineHeight:1, marginTop:6, color:T.text },
+    metricLabel:{ fontSize:11, color:T.textMuted, fontWeight:500 },
   };
 
   return (
@@ -410,7 +494,7 @@ const resetSearch = async () => {
 
       {/* ── Toast ── */}
       {toast && (
-        <div style={{ position:"fixed", bottom:24, right:24, background:"#1A1A1A", color:"#FFFFFF", padding:"10px 16px", borderRadius:8, fontSize:13, zIndex:9999, boxShadow:"0 4px 12px rgba(0,0,0,0.15)" }}>
+        <div style={{ position:"fixed", bottom:24, right:24, background:T.text, color:T.cardBg, padding:"10px 16px", borderRadius:8, fontSize:13, zIndex:9999, boxShadow:"0 4px 12px rgba(0,0,0,0.15)" }}>
           {toast}
         </div>
       )}
@@ -418,8 +502,17 @@ const resetSearch = async () => {
       {/* ── SIDEBAR ── */}
       <div style={S.sidebar}>
         <div style={S.logo}>
-          <div style={S.logoText}>LeadAgent</div>
-          <div style={S.logoSub}>v0.1.0 · MVP</div>
+          <div>
+            <div style={S.logoText}>Beacon AI</div>
+            <div style={S.logoSub}>v0.1.0 · MVP</div>
+          </div>
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            style={S.themeToggle}
+            title={darkMode ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+          >
+            {darkMode ? "☀" : "☾"}
+          </button>
         </div>
 
         <nav style={{ padding:"8px 8px", flex:1 }}>
@@ -433,8 +526,8 @@ const resetSearch = async () => {
 
         <div style={S.statusBar}>
           <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
-            <span style={{ width:6, height:6, borderRadius:"50%", background: running ? "#16A34A" : "#D1D1CF", display:"inline-block" }} />
-            <span style={{ color: running ? "#16A34A" : "#9B9B97", fontWeight:500 }}>
+            <span style={{ width:6, height:6, borderRadius:"50%", background: running ? "#16A34A" : T.textMuted, display:"inline-block" }} />
+            <span style={{ color: running ? "#16A34A" : T.textMuted, fontWeight:500 }}>
               {running ? "Ejecutando" : "En espera"}
             </span>
           </div>
@@ -448,8 +541,8 @@ const resetSearch = async () => {
         {/* ══ EJECUCIÓN ══ */}
         {tab === "exec" && (
           <div style={S.scroll}>
-            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:"#1A1A1A" }}>Ejecución</h2>
-            <p style={{ fontSize:13, color:"#9B9B97", marginBottom:24 }}>Configura las búsquedas y ejecuta el pipeline completo.</p>
+            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:T.text }}>Ejecución</h2>
+            <p style={{ fontSize:13, color:T.textMuted, marginBottom:24 }}>Configura las búsquedas y ejecuta el pipeline completo.</p>
 
             {/* botones ejecutar / parar */}
             <div style={{ display:"flex", gap:10, marginBottom:24 }}>
@@ -481,7 +574,7 @@ const resetSearch = async () => {
                 ))}
               </div>
               {mode && modeOptions[mode] && (
-                <p style={{ fontSize:12, color:"#9B9B97", marginTop:10, marginBottom:0 }}>
+                <p style={{ fontSize:12, color:T.textMuted, marginTop:10, marginBottom:0 }}>
                   Hasta {modeOptions[mode].max_results_per_query} fichas por búsqueda.
                 </p>
               )}
@@ -493,8 +586,8 @@ const resetSearch = async () => {
 
               {/* cabecera columnas */}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1.5fr 32px", gap:8, marginBottom:8 }}>
-                <span style={{ fontSize:11, color:"#9B9B97", fontWeight:500 }}>Tema</span>
-                <span style={{ fontSize:11, color:"#9B9B97", fontWeight:500 }}>Zona</span>
+                <span style={{ fontSize:11, color:T.textMuted, fontWeight:500 }}>Tema</span>
+                <span style={{ fontSize:11, color:T.textMuted, fontWeight:500 }}>Zona</span>
                 <span />
               </div>
 
@@ -507,7 +600,7 @@ const resetSearch = async () => {
                     onChange={e => updateConfig(i, "zone", e.target.value)}
                     style={S.input} />
                   <button onClick={() => removeConfig(i)}
-                    style={{ background:"none", border:"none", color:"#BCBCBA", cursor:"pointer", fontSize:18, lineHeight:1, padding:0 }}>×</button>
+                    style={{ background:"none", border:"none", color:T.textMuted, cursor:"pointer", fontSize:18, lineHeight:1, padding:0 }}>×</button>
                 </div>
               ))}
 
@@ -532,7 +625,7 @@ const resetSearch = async () => {
                     color: l.includes("✗") ? "#F87171"
                          : l.includes("✓") ? "#4ADE80"
                          : l.includes("→") ? "#60A5FA"
-                         : "#6B7280"
+                         : T.textSecondary
                   }}>{l}</div>
                 ))}
               </div>
@@ -545,10 +638,10 @@ const resetSearch = async () => {
           <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
 
             {/* barra top */}
-            <div style={{ padding:"16px 24px", borderBottom:"1px solid #E8E8E6", background:"#FFFFFF", display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+            <div style={{ padding:"16px 24px", borderBottom:`1px solid ${T.border}`, background:T.cardBg, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
               <div>
                 <span style={{ fontSize:15, fontWeight:600 }}>Leads</span>
-                <span style={{ fontSize:13, color:"#9B9B97", marginLeft:8 }}>{leads.length} registros · {selected.size} seleccionados</span>
+                <span style={{ fontSize:13, color:T.textMuted, marginLeft:8 }}>{leads.length} registros · {selected.size} seleccionados</span>
               </div>
               <div style={{ display:"flex", gap:8 }}>
                 <button onClick={() => setSelected(new Set(leads.map(l => l.name)))} style={S.btnGhost}>
@@ -567,47 +660,47 @@ const resetSearch = async () => {
             </div>
 
             {/* tabla header */}
-            <div style={{ display:"grid", gridTemplateColumns:"36px 1fr 60px 130px 90px 100px 30px", gap:12, padding:"10px 24px", background:"#F7F7F5", borderBottom:"1px solid #E8E8E6", flexShrink:0 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"36px 1fr 60px 130px 90px 100px 30px", gap:12, padding:"10px 24px", background:T.inputBg, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
               {["", "Negocio", "Score", "Web", "Prioridad", "Estado", ""].map((h, i) => (
-                <span key={i} style={{ fontSize:11, fontWeight:600, color:"#9B9B97", textTransform:"uppercase", letterSpacing:"0.05em" }}>{h}</span>
+                <span key={i} style={{ fontSize:11, fontWeight:600, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{h}</span>
               ))}
             </div>
 
             {/* lista */}
-            <div style={{ flex:1, overflowY:"auto", background:"#FFFFFF" }}>
+            <div style={{ flex:1, overflowY:"auto", background:T.cardBg }}>
               {leads.length === 0 ? (
-                <div style={{ textAlign:"center", padding:60, color:"#9B9B97", fontSize:14 }}>
+                <div style={{ textAlign:"center", padding:60, color:T.textMuted, fontSize:14 }}>
                   Sin leads — ejecuta el pipeline primero
                 </div>
               ) : leads.map(lead => {
                 const isExp = expanded === lead.name;
                 const isSel = selected.has(lead.name);
-                const pc    = PRIORITY_COLOR[lead.priority] || "#6B7280";
-                const pb    = PRIORITY_BG[lead.priority]   || "#F9FAFB";
+                const pc    = PRIORITY_COLOR[lead.priority] || T.textSecondary;
+                const pb    = PRIORITY_BG[lead.priority]   || T.inputBg;
 
                 return (
-                  <div key={lead.name} style={{ borderBottom:"1px solid #F0F0EE" }}>
+                  <div key={lead.name} style={{ borderBottom:`1px solid ${T.borderLight}` }}>
                     {/* fila */}
                     <div onClick={() => setExpanded(isExp ? null : lead.name)}
-                      style={{ display:"grid", gridTemplateColumns:"36px 1fr 60px 130px 90px 100px 30px", gap:12, padding:"12px 24px", cursor:"pointer", background: isSel ? "#FAFFFE" : "transparent", transition:"background 0.1s" }}>
+                      style={{ display:"grid", gridTemplateColumns:"36px 1fr 60px 130px 90px 100px 30px", gap:12, padding:"12px 24px", cursor:"pointer", background: isSel ? T.rowHover : "transparent", transition:"background 0.1s" }}>
 
                       {/* checkbox */}
                       <div onClick={e => { e.stopPropagation(); toggleSelect(lead.name); }}
-                        style={{ width:16, height:16, borderRadius:4, border:`1.5px solid ${isSel ? "#1A1A1A" : "#D1D1CF"}`, background: isSel ? "#1A1A1A" : "transparent", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0, marginTop:2 }}>
+                        style={{ width:16, height:16, borderRadius:4, border:`1.5px solid ${isSel ? T.text : T.textMuted}`, background: isSel ? T.text : "transparent", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0, marginTop:2 }}>
                         {isSel && <span style={{ color:"#FFF", fontSize:9 }}>✓</span>}
                       </div>
 
                       {/* nombre */}
                       <div>
-                        <div style={{ fontSize:13, fontWeight:500, color:"#1A1A1A" }}>{lead.name}</div>
-                        <div style={{ fontSize:11, color:"#9B9B97", marginTop:1 }}>{lead.category} · {lead.zone}</div>
+                        <div style={{ fontSize:13, fontWeight:500, color:T.text }}>{lead.name}</div>
+                        <div style={{ fontSize:11, color:T.textMuted, marginTop:1 }}>{lead.category} · {lead.zone}</div>
                       </div>
 
                       {/* score */}
                       <div style={{ fontSize:14, fontWeight:700, color: pc }}>{lead.score}</div>
 
                       {/* web */}
-                      <div style={{ fontSize:11, color: lead.website ? "#6B7280" : "#E8442A" }}>
+                      <div style={{ fontSize:11, color: lead.website ? T.textSecondary : "#E8442A" }}>
                         {lead.website ? lead.website.replace(/https?:\/\//, "").slice(0, 22) : "sin web ←"}
                       </div>
 
@@ -626,30 +719,30 @@ const resetSearch = async () => {
                       </div>
 
                       {/* flecha */}
-                      <div style={{ textAlign:"right", color:"#BCBCBA", fontSize:11, marginTop:2 }}>{isExp ? "▲" : "▼"}</div>
+                      <div style={{ textAlign:"right", color:T.textMuted, fontSize:11, marginTop:2 }}>{isExp ? "▲" : "▼"}</div>
                     </div>
 
                     {/* detalle expandido */}
                     {isExp && (
-                      <div style={{ background:"#F7F7F5", borderTop:"1px solid #E8E8E6", padding:"16px 24px 16px 72px" }}>
+                      <div style={{ background:T.inputBg, borderTop:`1px solid ${T.border}`, padding:"16px 24px 16px 72px" }}>
                         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:16 }}>
-                          <div style={{ fontSize:12, color:"#6B7280", lineHeight:2 }}>
-                            {lead.phone   && <div>📞 <span style={{ color:"#1A1A1A" }}>{lead.phone}</span></div>}
-                            {lead.address && <div>📍 <span style={{ color:"#1A1A1A" }}>{lead.address.replace(/[^\x20-\x7E\u00C0-\u024F\u00F1]/g,"").trim()}</span></div>}
+                          <div style={{ fontSize:12, color:T.textSecondary, lineHeight:2 }}>
+                            {lead.phone   && <div>📞 <span style={{ color:T.text }}>{lead.phone}</span></div>}
+                            {lead.address && <div>📍 <span style={{ color:T.text }}>{lead.address.replace(/[^\x20-\x7E\u00C0-\u024F\u00F1]/g,"").trim()}</span></div>}
                             {lead.maps_url && <a href={lead.maps_url} target="_blank" rel="noreferrer" style={{ color:"#2563EB", fontSize:12 }}>Ver en Google Maps ↗</a>}
                           </div>
                           <div>
                             {lead.score_reasons?.map((r, i) => (
-                              <div key={i} style={{ fontSize:11, color:"#9B9B97", lineHeight:2 }}>· {r}</div>
+                              <div key={i} style={{ fontSize:11, color:T.textMuted, lineHeight:2 }}>· {r}</div>
                             ))}
                           </div>
                         </div>
 
                         {lead.email_body ? (
-                          <div style={{ background:"#FFFFFF", border:"1px solid #E8E8E6", borderRadius:8, padding:16, marginBottom:12 }}>
-                            <div style={{ fontSize:11, fontWeight:600, color:"#9B9B97", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Mensaje generado</div>
-                            <div style={{ fontSize:12, color:"#6B7280", marginBottom:6 }}>Asunto: <span style={{ color:"#1A1A1A", fontWeight:500 }}>{lead.email_subject}</span></div>
-                            <div style={{ fontSize:12, color:"#4B5563", whiteSpace:"pre-line", lineHeight:1.7, borderTop:"1px solid #F0F0EE", paddingTop:10, marginTop:4 }}>{lead.email_body}</div>
+                          <div style={{ background:T.cardBg, border:`1px solid ${T.border}`, borderRadius:8, padding:16, marginBottom:12 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>Mensaje generado</div>
+                            <div style={{ fontSize:12, color:T.textSecondary, marginBottom:6 }}>Asunto: <span style={{ color:T.text, fontWeight:500 }}>{lead.email_subject}</span></div>
+                            <div style={{ fontSize:12, color:T.textSecondary, whiteSpace:"pre-line", lineHeight:1.7, borderTop:`1px solid ${T.borderLight}`, paddingTop:10, marginTop:4 }}>{lead.email_body}</div>
                           </div>
                         ) : (
                           <button onClick={() => generateMsg(lead)} disabled={generating === lead.name}
@@ -672,7 +765,7 @@ const resetSearch = async () => {
                               value={lead.status || "new"}
                               onChange={e => updateStatus(lead.name, e.target.value)}
                               onClick={e => e.stopPropagation()}
-                              style={{ fontSize:12, fontWeight:500, padding:"7px 10px", borderRadius:8, border:"1px solid #E8E8E6", background:"#FFFFFF", color:"#1A1A1A", cursor:"pointer" }}
+                              style={{ fontSize:12, fontWeight:500, padding:"7px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.cardBg, color:T.text, cursor:"pointer" }}
                             >
                               {STAGES.map(s => (
                                 <option key={s} value={s}>{STAGE_LABEL[s]}</option>
@@ -692,30 +785,30 @@ const resetSearch = async () => {
         {/* ══ CRM (pipeline tipo Kanban) ══ */}
         {tab === "crm" && (
           <div style={S.scroll}>
-            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:"#1A1A1A" }}>CRM</h2>
-            <p style={{ fontSize:13, color:"#9B9B97", marginBottom:24 }}>Tu pipeline de leads, etapa por etapa.</p>
+            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:T.text }}>CRM</h2>
+            <p style={{ fontSize:13, color:T.textMuted, marginBottom:24 }}>Tu pipeline de leads, etapa por etapa.</p>
 
             <div style={{ display:"flex", gap:12, overflowX:"auto", paddingBottom:12 }}>
               {STAGES.map(stage => {
                 const inStage = leads.filter(l => (l.status || "new") === stage);
                 return (
-                  <div key={stage} style={{ minWidth:240, flex:"0 0 240px", background:"#FFFFFF", border:"1px solid #E8E8E6", borderRadius:10, display:"flex", flexDirection:"column", maxHeight:"calc(100vh - 180px)" }}>
-                    <div style={{ padding:"12px 14px", borderBottom:"1px solid #F0F0EE", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                  <div key={stage} style={{ minWidth:240, flex:"0 0 240px", background:T.cardBg, border:`1px solid ${T.border}`, borderRadius:10, display:"flex", flexDirection:"column", maxHeight:"calc(100vh - 180px)" }}>
+                    <div style={{ padding:"12px 14px", borderBottom:`1px solid ${T.borderLight}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                       <span style={{ fontSize:12, fontWeight:600, color: STAGE_COLOR[stage] }}>{STAGE_LABEL[stage]}</span>
-                      <span style={{ fontSize:11, color:"#9B9B97", background:"#F7F7F5", padding:"2px 7px", borderRadius:10 }}>{inStage.length}</span>
+                      <span style={{ fontSize:11, color:T.textMuted, background:T.inputBg, padding:"2px 7px", borderRadius:10 }}>{inStage.length}</span>
                     </div>
                     <div style={{ overflowY:"auto", padding:8, flex:1 }}>
                       {inStage.length === 0 ? (
-                        <div style={{ fontSize:11, color:"#BCBCBA", textAlign:"center", padding:"20px 0" }}>—</div>
+                        <div style={{ fontSize:11, color:T.textMuted, textAlign:"center", padding:"20px 0" }}>—</div>
                       ) : inStage.map(l => (
-                        <div key={l.name} style={{ background:"#F7F7F5", border:"1px solid #F0F0EE", borderRadius:8, padding:10, marginBottom:8 }}>
-                          <div style={{ fontSize:12, fontWeight:500, color:"#1A1A1A", marginBottom:2 }}>{l.name}</div>
-                          <div style={{ fontSize:10, color:"#9B9B97", marginBottom:8 }}>{l.category} · {l.zone}</div>
+                        <div key={l.name} style={{ background:T.inputBg, border:`1px solid ${T.borderLight}`, borderRadius:8, padding:10, marginBottom:8 }}>
+                          <div style={{ fontSize:12, fontWeight:500, color:T.text, marginBottom:2 }}>{l.name}</div>
+                          <div style={{ fontSize:10, color:T.textMuted, marginBottom:8 }}>{l.category} · {l.zone}</div>
                           {l.phone && (
                             <select
                               value={l.status || "new"}
                               onChange={e => updateStatus(l.name, e.target.value)}
-                              style={{ width:"100%", fontSize:11, padding:"5px 6px", borderRadius:6, border:"1px solid #E8E8E6", background:"#FFFFFF", color:"#1A1A1A", cursor:"pointer" }}
+                              style={{ width:"100%", fontSize:11, padding:"5px 6px", borderRadius:6, border:`1px solid ${T.border}`, background:T.cardBg, color:T.text, cursor:"pointer" }}
                             >
                               {STAGES.map(s => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}
                             </select>
@@ -730,83 +823,161 @@ const resetSearch = async () => {
           </div>
         )}
 
-        {/* ══ ENGAGE (campañas de Gmail) ══ */}
+        {/* ══ ENGAGE (canales: Gmail + WhatsApp) ══ */}
         {tab === "engage" && (
           <div style={S.scroll}>
-            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:"#1A1A1A" }}>Engage</h2>
-            <p style={{ fontSize:13, color:"#9B9B97", marginBottom:24 }}>Campañas de email por Gmail. Sube los emails de tus leads para empezar.</p>
+            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:T.text }}>Engage</h2>
+            <p style={{ fontSize:13, color:T.textMuted, marginBottom:20 }}>Tus canales de contacto, cada uno con su propia data.</p>
 
-            <div style={S.card}>
-              <div style={S.cardTitle}>Subir emails</div>
-              <p style={{ fontSize:12, color:"#6B7280", marginBottom:12 }}>
-                Google Maps no expone emails — sube un CSV o Excel con columnas <b>name</b> y <b>email</b> (por ejemplo, de Hunter.io o del sitio web de cada negocio).
-              </p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                style={{ display:"none" }}
-                onChange={e => { const f = e.target.files?.[0]; if (f) uploadEmails(f); e.target.value = ""; }}
-              />
-              <button onClick={() => fileInputRef.current?.click()} disabled={uploadingEmails} style={{ ...S.btnGhost, opacity: uploadingEmails ? 0.5 : 1 }}>
-                {uploadingEmails ? "⟳ Subiendo..." : "↑ Subir CSV / Excel"}
-              </button>
-            </div>
-
-            <div style={S.card}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-                <div style={S.cardTitle}>Leads con email ({engageLeads.length})</div>
+            {/* sub-nav de canales */}
+            <div style={{ display:"flex", gap:6, marginBottom:20, borderBottom:`1px solid ${T.border}`, paddingBottom:2 }}>
+              {[
+                { key: "gmail" as const,    label: "✉  Gmail" },
+                { key: "whatsapp" as const, label: "💬  WhatsApp" },
+              ].map(c => (
                 <button
-                  onClick={() => sendCampaign(engageLeads.filter(l => l.email_body).map(l => l.name))}
-                  disabled={sendingCampaign || !emailAccount || engageLeads.filter(l => l.email_body).length === 0}
-                  style={{ ...S.btnPrimary, opacity: (sendingCampaign || !emailAccount || engageLeads.filter(l => l.email_body).length === 0) ? 0.4 : 1 }}
+                  key={c.key}
+                  onClick={() => setChannelTab(c.key)}
+                  style={{
+                    padding:"8px 16px", borderRadius:"8px 8px 0 0", border:"none", cursor:"pointer",
+                    fontSize:13, fontWeight:500, fontFamily:"inherit",
+                    background: channelTab === c.key ? T.cardBg : "transparent",
+                    color: channelTab === c.key ? T.text : T.textMuted,
+                    borderBottom: channelTab === c.key ? "2px solid #2563EB" : "2px solid transparent",
+                    marginBottom:-3,
+                  }}
                 >
-                  {sendingCampaign ? "Enviando..." : `✉ Enviar campaña (${engageLeads.filter(l => l.email_body).length})`}
+                  {c.label}
                 </button>
-              </div>
-
-              {!emailAccount && (
-                <div style={{ fontSize:12, color:"#D97706", background:"#FFFBEB", border:"1px solid #FDE68A", borderRadius:8, padding:10, marginBottom:12 }}>
-                  ⚠ No tienes una cuenta de Gmail conectada. Ve a "Cuentas de Email" primero.
-                </div>
-              )}
-
-              {engageLeads.length === 0 ? (
-                <div style={{ textAlign:"center", padding:40, color:"#9B9B97", fontSize:13 }}>
-                  Ningún lead tiene email todavía — sube un archivo arriba.
-                </div>
-              ) : engageLeads.map(lead => (
-                <div key={lead.name} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:"1px solid #F0F0EE" }}>
-                  <div>
-                    <div style={{ fontSize:13, fontWeight:500, color:"#1A1A1A" }}>{lead.name}</div>
-                    <div style={{ fontSize:11, color:"#9B9B97" }}>{lead.email}</div>
-                  </div>
-                  {lead.email_body ? (
-                    <span style={{ fontSize:11, color:"#16A34A", background:"#F0FDF4", padding:"3px 8px", borderRadius:20 }}>✓ Mensaje listo</span>
-                  ) : (
-                    <button onClick={() => generateMsg(lead)} disabled={generating === lead.name} style={{ ...S.btnGhost, opacity: generating === lead.name ? 0.5 : 1 }}>
-                      {generating === lead.name ? "⟳ Generando..." : "✦ Generar mensaje"}
-                    </button>
-                  )}
-                </div>
               ))}
             </div>
+
+            {/* ── canal Gmail ── */}
+            {channelTab === "gmail" && (
+              <>
+                <div style={S.card}>
+                  <div style={S.cardTitle}>Subir emails</div>
+                  <p style={{ fontSize:12, color:T.textSecondary, marginBottom:12 }}>
+                    Google Maps no expone emails — sube un CSV o Excel con columnas <b>name</b> y <b>email</b> (por ejemplo, de Hunter.io o del sitio web de cada negocio).
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    style={{ display:"none" }}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) uploadEmails(f); e.target.value = ""; }}
+                  />
+                  <button onClick={() => fileInputRef.current?.click()} disabled={uploadingEmails} style={{ ...S.btnGhost, opacity: uploadingEmails ? 0.5 : 1 }}>
+                    {uploadingEmails ? "⟳ Subiendo..." : "↑ Subir CSV / Excel"}
+                  </button>
+                </div>
+
+                <div style={S.card}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                    <div style={S.cardTitle}>Leads con email ({engageLeads.length})</div>
+                    <button
+                      onClick={() => sendCampaign(engageLeads.filter(l => l.email_body).map(l => l.name))}
+                      disabled={sendingCampaign || !emailAccount || engageLeads.filter(l => l.email_body).length === 0}
+                      style={{ ...S.btnPrimary, opacity: (sendingCampaign || !emailAccount || engageLeads.filter(l => l.email_body).length === 0) ? 0.4 : 1 }}
+                    >
+                      {sendingCampaign ? "Enviando..." : `✉ Enviar campaña (${engageLeads.filter(l => l.email_body).length})`}
+                    </button>
+                  </div>
+
+                  {!emailAccount && (
+                    <div style={{ fontSize:12, color:"#D97706", background:"rgba(217,119,6,0.14)", border:"1px solid rgba(217,119,6,0.35)", borderRadius:8, padding:10, marginBottom:12 }}>
+                      ⚠ No tienes una cuenta de Gmail conectada. Ve a "Cuentas de Email" primero.
+                    </div>
+                  )}
+
+                  {engageLeads.length === 0 ? (
+                    <div style={{ textAlign:"center", padding:40, color:T.textMuted, fontSize:13 }}>
+                      Ningún lead tiene email todavía — sube un archivo arriba.
+                    </div>
+                  ) : engageLeads.map(lead => (
+                    <div key={lead.name} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${T.borderLight}` }}>
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:500, color:T.text }}>{lead.name}</div>
+                        <div style={{ fontSize:11, color:T.textMuted }}>{lead.email}</div>
+                      </div>
+                      {lead.email_body ? (
+                        <span style={{ fontSize:11, color:"#16A34A", background:"rgba(22,163,74,0.14)", padding:"3px 8px", borderRadius:20 }}>✓ Mensaje listo</span>
+                      ) : (
+                        <button onClick={() => generateMsg(lead)} disabled={generating === lead.name} style={{ ...S.btnGhost, opacity: generating === lead.name ? 0.5 : 1 }}>
+                          {generating === lead.name ? "⟳ Generando..." : "✦ Generar mensaje"}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* ── canal WhatsApp ── */}
+            {channelTab === "whatsapp" && (
+              <>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:12 }}>
+                  <div style={S.metricCard}>
+                    <div style={S.metricLabel}>Leads con teléfono</div>
+                    <div style={S.metricVal}>{whatsappSummary.total}</div>
+                  </div>
+                  <div style={S.metricCard}>
+                    <div style={S.metricLabel}>Pendientes</div>
+                    <div style={S.metricVal}>{whatsappSummary.pending}</div>
+                  </div>
+                  <div style={S.metricCard}>
+                    <div style={S.metricLabel}>Ya contactados</div>
+                    <div style={S.metricVal}>{whatsappSummary.sent}</div>
+                  </div>
+                </div>
+
+                <div style={S.card}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                    <div style={S.cardTitle}>Bot de WhatsApp</div>
+                    <span style={{ fontSize:11, fontWeight:500, padding:"3px 10px", borderRadius:20, background: whatsappStatus.running ? "rgba(22,163,74,0.14)" : "rgba(107,114,128,0.10)", color: whatsappStatus.running ? "#16A34A" : "#6B7280" }}>
+                      {whatsappStatus.running ? "● Corriendo" : "○ Detenido"}
+                    </span>
+                  </div>
+
+                  <p style={{ fontSize:12, color:T.textSecondary, marginBottom:14 }}>
+                    Lee el Excel que exportaste en <b>Métricas → Exportar Excel para WhatsApp</b> (colócalo en <code>WHATSAPP_IA/data/</code>) y envía los mensajes usando WhatsApp Web. Necesita la pantalla de esta PC despierta y WhatsApp Web ya logueado.
+                  </p>
+
+                  <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+                    <button onClick={exportWhatsAppExcel} style={S.btnGhost}>↓ Exportar Excel</button>
+                    {whatsappStatus.running ? (
+                      <button onClick={stopWhatsapp} style={S.btnDanger}>■ Detener bot</button>
+                    ) : (
+                      <button onClick={launchWhatsapp} disabled={launchingWa} style={{ ...S.btnPrimary, opacity: launchingWa ? 0.5 : 1 }}>
+                        {launchingWa ? "Lanzando..." : "▶ Lanzar bot de WhatsApp"}
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={S.log}>
+                    {whatsappStatus.log_tail
+                      ? whatsappStatus.log_tail.split("\n").map((line, i) => <div key={i}>{line}</div>)
+                      : <div style={{ opacity:0.5 }}>Sin actividad todavía. Lanza el bot para ver el log aquí.</div>}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
         {/* ══ CUENTAS DE EMAIL ══ */}
         {tab === "accounts" && (
           <div style={S.scroll}>
-            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:"#1A1A1A" }}>Cuentas de Email</h2>
-            <p style={{ fontSize:13, color:"#9B9B97", marginBottom:24 }}>Conecta la cuenta de Gmail que va a enviar tus campañas.</p>
+            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:T.text }}>Cuentas de Email</h2>
+            <p style={{ fontSize:13, color:T.textMuted, marginBottom:24 }}>Conecta la cuenta de Gmail que va a enviar tus campañas.</p>
 
             {emailAccount ? (
               <div style={S.card}>
                 <div style={S.cardTitle}>Cuenta conectada</div>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                   <div>
-                    <div style={{ fontSize:14, fontWeight:500, color:"#1A1A1A" }}>{emailAccount.email}</div>
-                    <div style={{ fontSize:11, color:"#9B9B97" }}>{emailAccount.smtp_host}:{emailAccount.smtp_port} · {emailAccount.from_name}</div>
+                    <div style={{ fontSize:14, fontWeight:500, color:T.text }}>{emailAccount.email}</div>
+                    <div style={{ fontSize:11, color:T.textMuted }}>{emailAccount.smtp_host}:{emailAccount.smtp_port} · {emailAccount.from_name}</div>
                   </div>
                   <button onClick={disconnectEmailAccount} style={S.btnDanger}>Desconectar</button>
                 </div>
@@ -814,23 +985,23 @@ const resetSearch = async () => {
             ) : (
               <div style={S.card}>
                 <div style={S.cardTitle}>Conectar Gmail</div>
-                <p style={{ fontSize:12, color:"#6B7280", marginBottom:14 }}>
+                <p style={{ fontSize:12, color:T.textSecondary, marginBottom:14 }}>
                   Necesitas una <b>contraseña de aplicación</b> de Google (no tu contraseña normal).
                   Actívala en tu cuenta de Google → Seguridad → Verificación en 2 pasos → Contraseñas de aplicaciones.
                 </p>
                 <div style={{ display:"grid", gap:10, maxWidth:420 }}>
                   <div>
-                    <div style={{ fontSize:11, color:"#9B9B97", marginBottom:4 }}>Tu Gmail</div>
+                    <div style={{ fontSize:11, color:T.textMuted, marginBottom:4 }}>Tu Gmail</div>
                     <input style={S.input} placeholder="tu@gmail.com" value={emailForm.email}
                       onChange={e => setEmailForm({ ...emailForm, email: e.target.value })} />
                   </div>
                   <div>
-                    <div style={{ fontSize:11, color:"#9B9B97", marginBottom:4 }}>Contraseña de aplicación</div>
+                    <div style={{ fontSize:11, color:T.textMuted, marginBottom:4 }}>Contraseña de aplicación</div>
                     <input style={S.input} type="password" placeholder="xxxx xxxx xxxx xxxx" value={emailForm.app_password}
                       onChange={e => setEmailForm({ ...emailForm, app_password: e.target.value })} />
                   </div>
                   <div>
-                    <div style={{ fontSize:11, color:"#9B9B97", marginBottom:4 }}>Nombre para mostrar</div>
+                    <div style={{ fontSize:11, color:T.textMuted, marginBottom:4 }}>Nombre para mostrar</div>
                     <input style={S.input} placeholder="Tu Nombre / Tu Agencia" value={emailForm.from_name}
                       onChange={e => setEmailForm({ ...emailForm, from_name: e.target.value })} />
                   </div>
@@ -846,8 +1017,8 @@ const resetSearch = async () => {
         {/* ══ MÉTRICAS ══ */}
         {tab === "charts" && (
           <div style={S.scroll}>
-            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:"#1A1A1A" }}>Métricas</h2>
-            <p style={{ fontSize:13, color:"#9B9B97", marginBottom:24 }}>Resumen del rendimiento del agente.</p>
+            <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:T.text }}>Métricas</h2>
+            <p style={{ fontSize:13, color:T.textMuted, marginBottom:24 }}>Resumen del rendimiento del agente.</p>
 
             {/* grid métricas */}
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:24 }}>
@@ -872,10 +1043,10 @@ const resetSearch = async () => {
               {STAGES.map(s => ({ label: STAGE_LABEL[s], value: metrics.pipeline?.[s] || 0, color: STAGE_COLOR[s] })).map(b => (
                 <div key={b.label} style={{ marginBottom:16 }}>
                   <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:6 }}>
-                    <span style={{ color:"#4B5563" }}>{b.label}</span>
+                    <span style={{ color:T.textSecondary }}>{b.label}</span>
                     <span style={{ fontWeight:600, color:b.color }}>{b.value}</span>
                   </div>
-                  <div style={{ height:6, background:"#F0F0EE", borderRadius:3, overflow:"hidden" }}>
+                  <div style={{ height:6, background:T.borderLight, borderRadius:3, overflow:"hidden" }}>
                     <div style={{ height:"100%", width:`${Math.round((b.value/pipelineMax)*100)}%`, background:b.color, borderRadius:3, transition:"width 0.6s ease" }} />
                   </div>
                 </div>
@@ -888,14 +1059,14 @@ const resetSearch = async () => {
               {[
                 { label:"Alta",  color:"#E8442A", count: leads.filter(l=>l.priority==="high").length },
                 { label:"Media", color:"#D97706", count: leads.filter(l=>l.priority==="medium").length },
-                { label:"Baja",  color:"#9B9B97", count: leads.filter(l=>l.priority==="low").length },
+                { label:"Baja",  color:T.textMuted, count: leads.filter(l=>l.priority==="low").length },
               ].map(p => (
                 <div key={p.label} style={{ marginBottom:14 }}>
                   <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:6 }}>
-                    <span style={{ color:"#4B5563" }}>{p.label}</span>
+                    <span style={{ color:T.textSecondary }}>{p.label}</span>
                     <span style={{ fontWeight:600, color:p.color }}>{p.count}</span>
                   </div>
-                  <div style={{ height:6, background:"#F0F0EE", borderRadius:3, overflow:"hidden" }}>
+                  <div style={{ height:6, background:T.borderLight, borderRadius:3, overflow:"hidden" }}>
                     <div style={{ height:"100%", width: leads.length ? `${Math.round((p.count/leads.length)*100)}%` : "0%", background:p.color, borderRadius:3, transition:"width 0.6s ease" }} />
                   </div>
                 </div>

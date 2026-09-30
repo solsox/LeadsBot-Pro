@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import "./global.css";
 
 export const metadata: Metadata = {
-  title: "LeadAgent Dashboard",
+  title: "Beacon AI Dashboard",
   description: "Agente de adquisición automática de clientes",
 };
 
