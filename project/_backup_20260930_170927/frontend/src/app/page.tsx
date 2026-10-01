@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Campaigns from "./Campaigns";
 import LeadsLibrary from "./LeadsLibrary";
 import { EngageLaunch, WhatsAppPanel } from "./EngageLaunch";
-import FinderPanel from "./FinderPanel";
+import EmailScraper from "./EmailScraper";
 
 const API = "/api";
 
@@ -444,7 +444,8 @@ const resetSearch = async () => {
   const pipelineMax = Math.max(metrics.leads_qualified || 0, 1);
 
   const TABS = [
-    { key: "exec",     icon: "⚡", label: "Buscar + Emails" },
+    { key: "exec",     icon: "⚡", label: "Buscar" },
+    { key: "emails",   icon: "@",  label: "Scraper Emails" },
     { key: "leads",    icon: "◎",  label: "Leads" },
     { key: "campaigns", icon: "▶",  label: "Campañas" },
     { key: "crm",      icon: "▤",  label: "CRM" },
@@ -624,9 +625,6 @@ const resetSearch = async () => {
 
 
 
-            <FinderPanel T={T} S={S} API={API} configs={configs} mode={mode}
-              maxResults={modeOptions[mode]?.max_results_per_query ?? 60} addLog={addLog} showToast={showToast} />
-
             {/* log */}
             <div style={S.card}>
               <div style={S.cardTitle}>Log del sistema</div>
@@ -644,6 +642,10 @@ const resetSearch = async () => {
           </div>
         )}
 
+        {/* ══ SCRAPER DE EMAILS ══ */}
+        {tab === "emails" && (
+          <EmailScraper T={T} API={API} showToast={showToast} />
+        )}
 
         {/* ══ LEADS ══ */}
         {tab === "leads" && (

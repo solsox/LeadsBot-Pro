@@ -261,9 +261,7 @@ def _finalize(job: dict, name: str, save_list: bool = True) -> None:
     n = job["emails"]
     if save_list and n:
         leads = [{"name": r["name"], "email": r["email"], "website": r.get("website", ""), "category": r.get("category", ""),
-                  "zone": r.get("zone", ""), "phone": r.get("phone", ""),
-                  "extra": {**r.get("extra", {}), **{k: r[k] for k in ("employees_min", "employees_max", "size_source", "rating", "reviews") if r.get(k) is not None}},
-                  "score": None} for r in job["results"]]
+                  "zone": r.get("zone", ""), "phone": "", "extra": r.get("extra", {}), "score": None} for r in job["results"]]
         lst = {"id": "i_" + uuid.uuid4().hex[:8], "name": name, "source": "emails", "created_at": C._iso(C._now()), "leads": leads}
         with C._lock:
             lists = C._saved_lists()

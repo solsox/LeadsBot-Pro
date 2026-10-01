@@ -42,8 +42,6 @@ import campaigns
 app.include_router(campaigns.router)
 import sources
 app.include_router(sources.router)
-import leadfinder
-app.include_router(leadfinder.router)
 
 @app.on_event("startup")
 async def _start_campaign_scheduler():
@@ -238,9 +236,6 @@ def disconnect_email():
 #  EMAILS DE LEADS (overlay: name -> email)
 #  Se suben manualmente porque el scraper de Maps no expone emails.
 # ─────────────────────────────────────────────
-# ─────────────────────────────────────────────
-#  EMAILS DE LEADS (overlay: name -> email)
-# ─────────────────────────────────────────────
 LEAD_EMAILS_FILE = "lead_emails.json"
 
 def load_lead_emails() -> dict:
@@ -260,198 +255,45 @@ def apply_email_overlay(leads: list) -> list:
             l["email"] = emails[l["name"]]
     return leads
 
-
-# ─────────────────────────────────────────────
-#  Importar CSV/XLSX de leads (LinkedIn, Hunter, Snov, propio…)
-#  → se guarda como LISTA para poder lanzar campañas
-# ─────────────────────────────────────────────
-_ALIASES = {
-    "email":     ["email", "correo", "e-mail", "mail", "personal_email", "email_address"],
-    "name":      ["name", "full_name", "nombre", "contact_name", "contacto"],
-    "company":   ["company_name", "company", "empresa", "negocio", "business", "organization", "organization_name"],
-    "contact":   ["full_name", "first_name", "contact", "contacto", "nombre_contacto"],
-    "title":     ["job_title", "title", "cargo", "puesto", "position", "role"],
-    "industry":  ["industry", "industria", "sector", "categoria", "category", "rubro"],
-    "city":      ["city", "company_city", "zone", "zona", "ciudad", "state", "company_state", "location", "country"],
-    "phone":     ["mobile_number", "phone", "company_phone", "telefono", "teléfono", "celular", "whatsapp", "movil", "móvil"],
-    "website":   ["company_website", "website", "web", "company_domain", "domain", "sitio", "url", "company_url"],
-    "linkedin":  ["linkedin", "company_linkedin", "linkedin_url", "person_linkedin"],
-}
-
-
-def _pick_col(cols_low: dict, key: str):
-    for alias in _ALIASES.get(key, []):
-        if alias in cols_low:
-            return cols_low[alias]
-    return None
-
-
 @app.post("/engage/upload-emails", tags=["engage"])
 async def upload_emails(file: UploadFile = File(...)):
-    """
-    Sube un CSV/XLSX con leads. Acepta múltiples formatos:
-      · name + email (formato viejo)
-      · full_name + email (contactos)
-      · company_name + email (empresas)
-      · export de LinkedIn / Snov / Hunter (company_name, full_name, email, job_title, company_website, mobile_number…)
-    Los guarda como una LISTA nueva → visible en Engage → Lanzar campaña.
-    """
-    import pandas as pd, io, uuid as _uuid
+    """Sube un CSV/XLSX con columnas 'name' y 'email' y las asocia a los leads existentes."""
+    import pandas as pd, io
     content = await file.read()
     try:
-        if (file.filename or "").lower().endswith((".xlsx", ".xls")):
-            df = pd.read_excel(io.BytesIO(content), dtype=str)
+        if file.filename.lower().endswith(".csv"):
+            df = pd.read_csv(io.BytesIO(content))
         else:
-            try:
-                df = pd.read_csv(io.BytesIO(content), dtype=str, encoding="utf-8-sig")
-            except UnicodeDecodeError:
-                df = pd.read_csv(io.BytesIO(content), dtype=str, encoding="latin-1")
+            df = pd.read_excel(io.BytesIO(content))
     except Exception as e:
         raise HTTPException(400, f"No pude leer el archivo: {e}")
 
-    df = df.fillna("")
-    cols_low = {str(c).lower().strip(): c for c in df.columns}
+    cols = {str(c).lower().strip(): c for c in df.columns}
+    if "name" not in cols or "email" not in cols:
+        raise HTTPException(400, "El archivo debe tener columnas 'name' y 'email'")
 
-    email_col   = _pick_col(cols_low, "email")
-    name_col    = _pick_col(cols_low, "name")
-    company_col = _pick_col(cols_low, "company")
-    contact_col = _pick_col(cols_low, "contact")
-    title_col   = _pick_col(cols_low, "title")
-    industry_col= _pick_col(cols_low, "industry")
-    city_col    = _pick_col(cols_low, "city")
-    phone_col   = _pick_col(cols_low, "phone")
-    web_col     = _pick_col(cols_low, "website")
-    linkedin_col= _pick_col(cols_low, "linkedin")
-
-    if not email_col:
-        raise HTTPException(
-            400,
-            "El archivo necesita al menos una columna de email "
-            "(email / correo / mail / personal_email). "
-            f"Columnas encontradas: {list(df.columns)}"
-        )
-
-    leads, seen = [], set()
-    for _, row in df.iterrows():
-        email = str(row[email_col]).strip().lower()
-        if not email or "@" not in email or email == "nan":
-            continue
-
-        company  = str(row[company_col]).strip() if company_col else ""
-        contact  = str(row[contact_col]).strip() if contact_col else ""
-        name_raw = str(row[name_col]).strip() if name_col else ""
-
-        # "name" del lead → alimenta {{companyName}} en las plantillas.
-        # Preferimos el nombre de la empresa; si no, el contacto; si no, el nombre crudo.
-        display_name = company or contact or name_raw or email.split("@")[0]
-        # "contact" → alimenta {{firstName}}.
-        first_contact = contact or (name_raw if name_raw and name_raw != company else "")
-
-        rec = {
-            "name":     display_name,
-            "email":    email,
-            "contact":  first_contact,
-            "category": (str(row[title_col]).strip() if title_col else "")
-                        or (str(row[industry_col]).strip() if industry_col else ""),
-            "zone":     str(row[city_col]).strip() if city_col else "",
-            "phone":    campaigns.norm_phone(str(row[phone_col]).strip()) if phone_col else "",
-            "website":  str(row[web_col]).strip() if web_col else "",
-        }
-
-        # Cualquier otra columna útil queda disponible como variable personalizada
-        used = {c for c in (email_col, name_col, company_col, contact_col,
-                            title_col, industry_col, city_col, phone_col,
-                            web_col, linkedin_col) if c}
-        extra = {}
-        for c in df.columns:
-            if c in used:
-                continue
-            val = str(row[c]).strip()
-            if val and val.lower() != "nan":
-                extra[str(c)] = val
-        if linkedin_col and str(row[linkedin_col]).strip():
-            extra["linkedin"] = str(row[linkedin_col]).strip()
-        if extra:
-            rec["extra"] = extra
-
-        k = campaigns.lead_key(rec)
-        if k in seen:
-            continue
-        seen.add(k)
-        leads.append(rec)
-
-    if not leads:
-        raise HTTPException(
-            400,
-            f"No encontré filas con email válido. Columnas del archivo: {list(df.columns)}"
-        )
-
-    base_name = (file.filename or "Emails importados").rsplit(".", 1)[0]
-    lst = {
-        "id":         "i_" + _uuid.uuid4().hex[:8],
-        "name":       base_name,
-        "source":     "csv",
-        "filename":   file.filename,
-        "created_at": campaigns._iso(campaigns._now()),
-        "leads":      leads,
-    }
-    with campaigns._lock:
-        lists = campaigns._saved_lists()
-        lists.append(lst)
-        campaigns._write(campaigns.LISTS_FILE, lists)
-
-    # overlay legacy (name → email) para compatibilidad con /leads/{name}/send
     emails = load_lead_emails()
-    for l in leads:
-        emails[l["name"]] = l["email"]
+    added = 0
+    for _, row in df.iterrows():
+        name  = str(row[cols["name"]]).strip()
+        email = str(row[cols["email"]]).strip()
+        if name and email and "@" in email and name.lower() != "nan":
+            emails[name] = email
+            added += 1
     save_lead_emails(emails)
+    return {"ok": True, "added": added, "total": len(emails)}
 
-    return {
-        "ok":        True,
-        "added":     len(leads),
-        "total":     len(emails),
-        "list_id":   lst["id"],
-        "list_name": lst["name"],
-        "message":   f"{len(leads)} leads importados como lista «{lst['name']}». Ya puedes lanzar campaña en Engage.",
-    }
-
-
-@app.get("/engage/leads", tags=["engage"])
-def get_engage_leads():
-    """
-    Leads candidatos a campaña de Gmail:
-      · los que vienen del scraper de Maps (con email superpuesto)
-      · los que se importaron por CSV/XLSX (LinkedIn, Hunter, Snov…)
-    """
+@app.get("/channels/whatsapp/exports", tags=["channels"])
+def whatsapp_export_summary():
+    """Leads listos para WhatsApp (tienen teléfono), y si ya se les envió mensaje."""
     sync_whatsapp_sent()
-
-    # 1) leads del scraper (Maps) con sus mensajes generados
-    scored = load_json("leads_scored.json")
-    ready  = load_json("leads_ready.json")
-    leads = []
-    for l in scored:
-        match = next((r for r in ready if r["name"] == l["name"]), None)
-        leads.append(match if match else l)
-    leads = apply_status_overlay(leads)
-    leads = apply_email_overlay(leads)
-
-    # 2) leads de listas importadas (CSV/LinkedIn/…)
-    existing_emails = {l.get("email", "").lower() for l in leads if l.get("email")}
-    for lst in campaigns._saved_lists():
-        if lst.get("source") not in ("csv", "linkedin_csv", "email_hunter", "selection", "emails"):
-            continue
-        for l in lst.get("leads", []):
-            e = (l.get("email") or "").lower()
-            if not e or e in existing_emails:
-                continue
-            existing_emails.add(e)
-            leads.append({
-                **l,
-                "status":       l.get("status", "new"),
-                "source_list":  lst["name"],
-            })
-
-    return [l for l in leads if l.get("email")]
+    scored = apply_status_overlay(load_json("leads_scored.json"))
+    with_phone = [l for l in scored if l.get("phone")]
+    return {
+        "total": len(with_phone),
+        "pending": sum(1 for l in with_phone if l.get("status", "new") == "new"),
+        "sent": sum(1 for l in with_phone if l.get("status", "new") != "new"),
+    }
 
 
 # ─────────────────────────────────────────────
