@@ -1,36 +1,63 @@
-# Python
+cat > .gitignore << 'EOF'
+# ─── Credenciales y config sensible ───
+email_settings.json
+email_accounts.json
+.env
+.env.local
+.env.*.local
+
+# ─── Estado interno del CRM / campañas ───
+lead_status.json
+lead_emails.json
+tracking_events.json
+worker_state.json
+search_config.json
+search_mode.json
+campaigns_data/
+sources_data/
+
+# ─── Datos de leads (privacidad de contactos) ───
+leads_raw.json
+leads_scored.json
+leads_ready.json
+send_results.json
+data/
+
+# ─── WhatsApp ───
+WHATSAPP_IA/
+PyWhatKit_DB.txt
+
+# ─── Datos de negocio (CSV/XLSX con clientes) ───
+*.csv
+*.xlsx
+*.xls
+
+# ─── Python ───
 __pycache__/
-*.pyc
+*.py[cod]
 *.egg-info/
+.venv/
 venv/
 env/
-.venv/
+.pytest_cache/
 
-# Entorno
-.env
-*.env
-
-# Datos generados por el pipeline
-project/backend/data/
-project/backend/leads_*.json
-project/backend/send_results.json
-project/backend/tracking_events.json
-project/backend/worker_state.json
-project/backend/lead_status.json
-project/backend/email_settings.json
-project/backend/lead_emails.json
-WHATSAPP_IA/run.log
-project/backend/worker.log
-project/backend/search_config.json
-
-# WhatsApp bot — logs de envíos (sí se versiona la data/ de entrada)
-WHATSAPP_IA/data/enviados_log.csv
-
-# Node
+# ─── Node / Next ───
 node_modules/
-project/frontend/.next/
-project/frontend/out/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
 
-# OS
+# ─── Logs ───
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# ─── Sistema / Editores ───
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
 *.swp
+EOF
