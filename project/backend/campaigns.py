@@ -209,13 +209,19 @@ def _list_summary(l: dict) -> dict:
 #  LISTAS + IMPORTACIÓN (CSV / XLSX arrastrado desde el dashboard)
 # ═════════════════════════════════════════════════════════════════════════════
 ALIASES = {
-    "name":     ["name", "nombre", "negocio", "business", "company", "empresa", "razon social", "title"],
-    "phone":    ["phone", "telefono", "teléfono", "celular", "whatsapp", "movil", "móvil", "tel", "numero", "número"],
-    "email":    ["email", "correo", "e-mail", "mail"],
-    "category": ["category", "categoria", "categoría", "rubro", "tipo"],
-    "zone":     ["zone", "zona", "ciudad", "city", "ubicacion", "ubicación"],
-    "contact":  ["contact", "contacto", "first name", "firstname", "nombre contacto", "persona"],
-    "website":  ["website", "web", "sitio", "url", "pagina", "página"],
+    "name":     ["name", "nombre", "negocio", "business", "company", "empresa",
+                 "razon social", "company_name", "organization", "organization_name"],
+    "phone":    ["phone", "telefono", "teléfono", "celular", "whatsapp", "movil", "móvil",
+                 "tel", "numero", "número", "mobile_number", "company_phone"],
+    "email":    ["email", "correo", "e-mail", "mail", "personal_email", "email_address"],
+    "category": ["category", "categoria", "categoría", "rubro", "tipo",
+                 "industry", "job_title", "title", "headline"],
+    "zone":     ["zone", "zona", "ciudad", "city", "ubicacion", "ubicación",
+                 "company_city", "company_state", "state", "location", "country"],
+    "contact":  ["contact", "contacto", "first name", "firstname", "nombre contacto",
+                 "persona", "full_name", "contact_name"],
+    "website":  ["website", "web", "sitio", "url", "pagina", "página",
+                 "company_website", "company_domain", "domain", "company_url"],
 }
 
 
@@ -257,6 +263,7 @@ async def import_preview(file: UploadFile = File(...)):
 
 
 @router.post("/lists/import", tags=["lists"])
+@router.post("/lists/import", tags=["lists"])
 async def import_list(
     file: UploadFile = File(...),
     name: Optional[str] = Form(None),
@@ -274,12 +281,26 @@ async def import_list(
         rec = {f: (str(row[c]).strip() if c else "") for f, c in m.items()}
         rec["phone"] = norm_phone(rec.get("phone"))
         rec["email"] = norm_email(rec.get("email"))
-        if not rec.get("name"):
-            rec["name"] = rec["email"] or rec["phone"]
+
+        # nombre del lead → alimenta {{companyName}}.
+        # Prioridad: name/company_name → contact/full_name → email → phone.
+        # Si el "name" quedó apuntando a lo mismo que contact, usar contact.
+        name_val    = (rec.get("name") or "").strip()
+        contact_val = (rec.get("contact") or "").strip()
+        if not name_val or name_val.lower() == contact_val.lower():
+            name_val = contact_val or rec["email"] or rec["phone"]
+        rec["name"] = name_val
+
+        # contacto (persona) → alimenta {{firstName}}
+        if not contact_val or contact_val.lower() == name_val.lower():
+            contact_val = ""  # dejar vacío, la plantilla usará "equipo de <empresa>"
+        rec["contact"] = contact_val
+
         if not (rec["phone"] or rec["email"]):
             continue
         # el resto de columnas quedan disponibles como variables personalizadas
-        rec["extra"] = {str(c): str(row[c]).strip() for c in df.columns if c not in mapped_cols and str(row[c]).strip()}
+        rec["extra"] = {str(c): str(row[c]).strip() for c in df.columns
+                        if c not in mapped_cols and str(row[c]).strip()}
         k = lead_key(rec)
         if k in seen:
             continue
