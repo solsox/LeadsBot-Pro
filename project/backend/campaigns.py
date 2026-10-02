@@ -476,6 +476,8 @@ class CampaignIn(BaseModel):
     steps: Optional[List[StepIn]] = None
     schedule: Optional[dict] = None
     variables: Optional[Dict[str, str]] = None
+    email_account_ids: Optional[List[str]] = None      # ← NUEVO: ids de cuentas
+    account_strategy: Optional[str] = None             # ← NUEVO: least_used | round_robin | random
 
 
 def _campaigns() -> List[dict]:
@@ -542,11 +544,13 @@ def create_campaign(body: CampaignIn):
     c = {
         "id": "c_" + uuid.uuid4().hex[:8],
         "name": body.name or "Campaña nueva",
-        "status": "draft",                       # draft | active | paused
+        "status": "draft",
         "list_id": body.list_id,
         "steps": _validate_steps(body.steps) if body.steps else _default_steps(),
         "schedule": {**DEFAULT_SCHEDULE, **(body.schedule or {})},
         "variables": body.variables or {"senderName": "Tu nombre", "signature": "Saludos,\nTu nombre"},
+        "email_account_ids": body.email_account_ids or [],          # ← NUEVO ([] = todas)
+        "account_strategy": body.account_strategy or "least_used",  # ← NUEVO
         "created_at": _iso(_now()),
     }
     _save_campaign(c)
@@ -635,6 +639,10 @@ def update_campaign(cid: str, body: CampaignIn):
         c["schedule"] = {**DEFAULT_SCHEDULE, **body.schedule}
     if body.variables is not None:
         c["variables"] = body.variables
+    if body.email_account_ids is not None:
+        c["email_account_ids"] = body.email_account_ids
+    if body.account_strategy is not None:
+        c["account_strategy"] = body.account_strategy
     _save_campaign(c)
     return c
 
@@ -807,6 +815,12 @@ def analytics(cid: str):
         series.append({"date": day.isoformat(), "sent": n})
 
     contacted = len({r["lead_key"] for r in ok})
+
+    by_account = {}
+    for r in ok:
+        if r.get("account_email"):
+            by_account.setdefault(r["account_email"], 0)
+            by_account[r["account_email"]] += 1
     return {
         "leads": len(enr),
         "contacted": contacted,
@@ -823,6 +837,7 @@ def analytics(cid: str):
         "per_step": per_step,
         "series": series,
         "sent_today": _sent_today(rows, c),
+        "by_account": by_account,
     }
 
 
@@ -875,12 +890,28 @@ def _sync_replies_from_overlay(camp_id: str) -> None:
             _write(ENROLL_FILE, enr)
 
 
-def _send_email(lead: dict, subject: str, body: str, tracking_id: str) -> Optional[str]:
-    from sender import EmailSender
-    res = EmailSender().send_one({"id": tracking_id, "name": lead.get("name") or "lead", "email": lead["email"],
-                                  "email_subject": subject, "email_body": body})
-    return None if res.success else (res.error or "error desconocido")
+_rr_cursor: Dict[str, int] = {}    # cursor por campaña para round-robin
 
+
+def _send_email(c: dict, lead: dict, subject: str, body: str, tracking_id: str):
+    """
+    Devuelve (error|None, account|None).
+    Reparte entre las cuentas asignadas a la campaña (o todas las habilitadas si no hay).
+    """
+    import email_accounts as EA
+    acc_ids  = c.get("email_account_ids") or None
+    strategy = c.get("account_strategy") or "least_used"
+
+    cursor = _rr_cursor.get(c["id"], 0)
+    acc, new_cursor = EA.pick_account(acc_ids, strategy, cursor)
+    if strategy == "round_robin":
+        _rr_cursor[c["id"]] = new_cursor
+
+    if not acc:
+        return "Sin cuentas disponibles (todas al límite diario o ninguna habilitada)", None
+
+    err = EA.send_via_account(acc, lead["email"], subject, body, tracking_id)
+    return err, acc
 
 _wa_py_cache: Dict[str, str] = {}
 
@@ -1017,22 +1048,29 @@ def process_campaign(c: dict) -> int:
         attempted += 1
         _last_send[ch] = _t.time()
         tracking_id = f"{c['id']}__{hashlib.md5(k.encode()).hexdigest()[:10]}"
+        account = None
         try:
-            err = _send_email(lead, subj, body, tracking_id) if ch == "email" else _send_whatsapp(lead, body)
-        except Exception as ex:                       # cuenta de Gmail no conectada, etc.
+            if ch == "email":
+                err, account = _send_email(c, lead, subj, body, tracking_id)
+            else:
+                err = _send_whatsapp(lead, body)
+        except Exception as ex:
             err = str(ex)
 
+        account_email = account["email"] if account else None
         if err:
-            _log_send({**row, "ok": False, "error": err})
-            _update_enrollment(c["id"], k, history_add={"ts": row["ts"], "step": e["step"], "channel": ch, "ok": False, "error": err},
-                               next_at=_iso(now + timedelta(hours=1)))   # reintenta en 1 h
-            log.error(f"[{c['name']}] ✗ {lead.get('name')}: {err}")
+            _log_send({**row, "ok": False, "error": err, "account_email": account_email})
+            _update_enrollment(c["id"], k, history_add={"ts": row["ts"], "step": e["step"], "channel": ch,
+                                                        "ok": False, "error": err, "account_email": account_email},
+                               next_at=_iso(now + timedelta(hours=1)))
+            log.error(f"[{c['name']}] ✗ {lead.get('name')} ({ch}): {err}")
         else:
-            _log_send({**row, "ok": True})
+            _log_send({**row, "ok": True, "account_email": account_email})
             today[ch] = today.get(ch, 0) + 1
             _advance(c, k, e, step, sent=True)
-            log.info(f"[{c['name']}] ✓ paso {e['step'] + 1} ({ch}) → {lead.get('name')}")
-    return attempted
+            log.info(f"[{c['name']}] ✓ paso {e['step'] + 1} ({ch}) → {lead.get('name')}"
+                     + (f"  vía {account_email}" if account_email else ""))    
+            return attempted
 
 
 def _advance(c: dict, key: str, e: dict, step: dict, sent: bool = False, skipped: bool = False) -> None:

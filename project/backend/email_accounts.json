@@ -1,0 +1,32 @@
+{
+  "accounts": [
+    {
+      "id": "acc_88b69e55",
+      "email": "beaconicai@gmail.com",
+      "app_password": "qsfs oobh whjd yoki",
+      "smtp_host": "smtp.gmail.com",
+      "smtp_port": 587,
+      "from_name": "Beaconic AI",
+      "daily_limit": 40,
+      "enabled": true,
+      "primary": true,
+      "created_at": "2026-10-02T03:16:04.539573",
+      "sent_today": 1,
+      "last_sent_date": "2026-10-01"
+    },
+    {
+      "id": "acc_1c5b57d0",
+      "email": "samuelvaronhincapie@gmail.com",
+      "app_password": "jzjr dape gqnt cjqf",
+      "smtp_host": "smtp.gmail.com",
+      "smtp_port": 587,
+      "from_name": "Prueba",
+      "daily_limit": 40,
+      "enabled": true,
+      "primary": false,
+      "created_at": "2026-10-02T03:18:29.767710",
+      "sent_today": 1,
+      "last_sent_date": "2026-10-01"
+    }
+  ]
+}

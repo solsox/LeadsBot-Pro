@@ -36,7 +36,6 @@ const STAGE_COLOR: Record<string, string> = {
   new: "#6B7280", contacted: "#D97706", replied: "#2563EB",
   interested: "#7C3AED", won: "#16A34A", lost: "#9B9B97",
 };
-// tintes translúcidos: se ven bien tanto en modo claro como oscuro
 const STAGE_BG: Record<string, string> = {
   new: "rgba(107,114,128,0.10)", contacted: "rgba(217,119,6,0.14)", replied: "rgba(37,99,235,0.12)",
   interested: "rgba(124,58,237,0.12)", won: "rgba(22,163,74,0.14)", lost: "rgba(107,114,128,0.10)",
@@ -100,9 +99,10 @@ export default function Home() {
   const [whatsappSummary, setWhatsappSummary] = useState<{total:number; pending:number; sent:number}>({ total:0, pending:0, sent:0 });
   const [launchingWa, setLaunchingWa] = useState(false);
 
-  // ── Cuentas de Email (Gmail) ──
-  const [emailAccount, setEmailAccount] = useState<any>(null);
-  const [emailForm, setEmailForm] = useState({ email: "", app_password: "", from_name: "" });
+  // ── Cuentas de Email (Gmail multi-cuenta) ──
+  const [emailAccounts, setEmailAccounts] = useState<any[]>([]);
+  const [emailForm, setEmailForm] = useState({ email: "", app_password: "", from_name: "", daily_limit: 40 });
+  const [testingAccount, setTestingAccount] = useState<string | null>(null);
   const [savingEmail, setSavingEmail] = useState(false);
 
   const showToast = (msg: string) => {
@@ -162,8 +162,6 @@ export default function Home() {
     await Promise.all([fetchLeadsAndMetrics(), fetchConfig()]);
   }, [fetchLeadsAndMetrics, fetchConfig]);
 
-  // La config de búsquedas solo se carga UNA VEZ al abrir la página.
-  // Así nunca se pisa lo que el usuario está escribiendo.
   useEffect(() => { fetchConfig(); }, [fetchConfig]);
   useEffect(() => { fetchModeConfig(); }, [fetchModeConfig]);
   useEffect(() => { fetchLeadsAndMetrics(); }, [fetchLeadsAndMetrics]);
@@ -198,23 +196,23 @@ export default function Home() {
 
   const [resetting, setResetting] = useState(false);
 
-const resetSearch = async () => {
-  if (!window.confirm("Esto borra el historial de contactados y las métricas acumuladas para empezar de cero. ¿Continuar?")) return;
-  setResetting(true);
-  try {
-    const r = await fetch(`${API}/worker/reset`, { method: "POST" });
-    if (r.ok) {
-      setMetrics({});
-      setLeads([]);
-      setLogs(["Sistema reiniciado. Ejecuta el pipeline para comenzar."]);
-      showToast("Búsqueda reiniciada");
-    } else {
-      const err = await r.json().catch(() => ({}));
-      addLog(`✗ No se pudo reiniciar: ${err.detail || r.status}`);
-    }
-  } catch { addLog("✗ Error conectando con backend"); }
-  setResetting(false);
-};
+  const resetSearch = async () => {
+    if (!window.confirm("Esto borra el historial de contactados y las métricas acumuladas para empezar de cero. ¿Continuar?")) return;
+    setResetting(true);
+    try {
+      const r = await fetch(`${API}/worker/reset`, { method: "POST" });
+      if (r.ok) {
+        setMetrics({});
+        setLeads([]);
+        setLogs(["Sistema reiniciado. Ejecuta el pipeline para comenzar."]);
+        showToast("Búsqueda reiniciada");
+      } else {
+        const err = await r.json().catch(() => ({}));
+        addLog(`✗ No se pudo reiniciar: ${err.detail || r.status}`);
+      }
+    } catch { addLog("✗ Error conectando con backend"); }
+    setResetting(false);
+  };
 
   const saveConfig = async () => {
     await fetch(`${API}/config/search`, {
@@ -264,7 +262,6 @@ const resetSearch = async () => {
   };
 
   const updateStatus = async (name: string, status: string) => {
-    // actualización optimista: cambia en pantalla de una, sin esperar la respuesta
     setLeads(prev => prev.map(l => l.name === name ? { ...l, status } : l));
     try {
       const res = await fetch(`${API}/leads/${encodeURIComponent(name)}/status`, {
@@ -276,7 +273,7 @@ const resetSearch = async () => {
       addLog(`→ ${name}: movido a "${STAGE_LABEL[status]}"`);
     } catch {
       addLog(`✗ No se pudo actualizar el estado de ${name}`);
-      await fetchLeadsAndMetrics(); // revierte al valor real si falló
+      await fetchLeadsAndMetrics();
     }
   };
 
@@ -298,7 +295,7 @@ const resetSearch = async () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "error");
       addLog(`✓ ${data.added} emails asociados a leads`);
-      showToast(`${data.added} emails cargados`);
+      showToast(data.message || `${data.added} emails cargados`);
       await fetchEngageLeads();
     } catch (e: any) {
       addLog(`✗ Error subiendo emails: ${e.message || e}`);
@@ -326,13 +323,13 @@ const resetSearch = async () => {
     setSendingCampaign(false);
   };
 
-  // ── Cuentas de Email (Gmail) ──
+  // ── Cuentas de Email (Gmail multi-cuenta) ──
   const fetchEmailAccount = useCallback(async () => {
     try {
       const res = await fetch(`${API}/settings/email`);
       if (res.ok) {
         const data = await res.json();
-        setEmailAccount(data.email ? data : null);
+        setEmailAccounts(data.accounts || []);
       }
     } catch {}
   }, []);
@@ -345,29 +342,45 @@ const resetSearch = async () => {
     setSavingEmail(true);
     try {
       const res = await fetch(`${API}/settings/email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: emailForm.email,
           app_password: emailForm.app_password,
           from_name: emailForm.from_name || "Tu Nombre",
+          daily_limit: Number(emailForm.daily_limit) || 40,
         }),
       });
-      if (!res.ok) throw new Error();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "error");
       addLog(`✓ Cuenta de Gmail conectada: ${emailForm.email}`);
-      showToast("Cuenta de Gmail conectada");
-      setEmailForm({ email: "", app_password: "", from_name: "" });
+      showToast("Cuenta conectada");
+      setEmailForm({ email: "", app_password: "", from_name: "", daily_limit: 40 });
       await fetchEmailAccount();
-    } catch {
-      addLog(`✗ Error conectando la cuenta de Gmail`);
+    } catch (e: any) {
+      addLog(`✗ Error conectando Gmail: ${e.message || e}`);
+      showToast(e.message || "No se pudo conectar");
     }
     setSavingEmail(false);
   };
 
-  const disconnectEmailAccount = async () => {
-    await fetch(`${API}/settings/email`, { method: "DELETE" });
-    setEmailAccount(null);
-    addLog(`→ Cuenta de Gmail desconectada`);
+  const disconnectEmailAccount = async (id: string) => {
+    if (!confirm("¿Desconectar esta cuenta de Gmail?")) return;
+    await fetch(`${API}/settings/email/${id}`, { method: "DELETE" });
+    addLog("→ Cuenta de Gmail desconectada");
+    await fetchEmailAccount();
+  };
+
+  const testEmailAccount = async (id: string) => {
+    setTestingAccount(id);
+    try {
+      const res = await fetch(`${API}/settings/email/${id}/test`, { method: "POST" });
+      const data = await res.json();
+      if (data.ok) showToast(`✓ ${data.email} conecta bien`);
+      else showToast(`✗ ${data.error}`);
+    } catch {
+      showToast("✗ Error al probar");
+    }
+    setTestingAccount(null);
   };
 
   // ── Canal WhatsApp: lanzar/parar el bot desde el dashboard ──
@@ -417,7 +430,6 @@ const resetSearch = async () => {
     if (tab === "engage" && channelTab === "whatsapp") { fetchWhatsappStatus(); fetchWhatsappSummary(); }
   }, [tab, channelTab, fetchEngageLeads, fetchEmailAccount, fetchWhatsappStatus, fetchWhatsappSummary]);
 
-  // mientras el bot esté corriendo (o estemos viendo esa pestaña), refresca el status cada 3s
   useEffect(() => {
     if (tab !== "engage" || channelTab !== "whatsapp") return;
     const t = setInterval(fetchWhatsappStatus, 3000);
@@ -440,7 +452,6 @@ const resetSearch = async () => {
     addLog("↓ Exportando Excel para WhatsApp...");
   };
 
-  const maxVal = Math.max(metrics.leads_scraped || 0, metrics.leads_qualified || 0, 1);
   const pipelineMax = Math.max(metrics.leads_qualified || 0, 1);
 
   const TABS = [
@@ -454,13 +465,11 @@ const resetSearch = async () => {
   ] as const;
 
   const S = {
-    // layout
     app:     { display:"flex", height:"100vh", background:T.bg, color:T.text, fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", overflow:"hidden", transition:"background 0.15s,color 0.15s" } as React.CSSProperties,
     sidebar: { width:240, background:T.sidebarBg, borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column" as const, flexShrink:0 },
     main:    { flex:1, display:"flex", flexDirection:"column" as const, overflow:"hidden" },
     scroll:  { flex:1, overflowY:"auto" as const, padding:32 },
 
-    // sidebar
     logo:    { padding:"20px 16px 8px", borderBottom:`1px solid ${T.border}`, marginBottom:4, display:"flex", alignItems:"center", justifyContent:"space-between" },
     logoText:{ fontSize:16, fontWeight:700, color:T.text, letterSpacing:"-0.02em" },
     logoSub: { fontSize:11, color:T.textMuted, marginTop:2 },
@@ -475,23 +484,18 @@ const resetSearch = async () => {
     }),
     statusBar: { padding:"12px 16px", borderTop:`1px solid ${T.border}`, fontSize:12, color:T.textMuted },
 
-    // cards
     card:    { background:T.cardBg, border:`1px solid ${T.border}`, borderRadius:10, padding:"16px 20px", marginBottom:12 } as React.CSSProperties,
     cardTitle:{ fontSize:11, fontWeight:600, color:T.textMuted, textTransform:"uppercase" as const, letterSpacing:"0.06em", marginBottom:12 },
 
-    // inputs
     input:   { width:"100%", background:T.inputBg, border:`1px solid ${T.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, color:T.text, outline:"none", fontFamily:"inherit" } as React.CSSProperties,
 
-    // buttons
     btnPrimary: { padding:"9px 16px", background:T.accentBg, color:T.accentText, border:"none", borderRadius:7, fontSize:13, fontWeight:500, cursor:"pointer", fontFamily:"inherit" } as React.CSSProperties,
     btnGhost:   { padding:"7px 14px", background:"transparent", color:T.textSecondary, border:`1px solid ${T.border}`, borderRadius:7, fontSize:12, cursor:"pointer", fontFamily:"inherit" } as React.CSSProperties,
     btnDanger:  { padding:"9px 16px", background:"rgba(232,68,42,0.12)", color:"#E8442A", border:"1px solid rgba(232,68,42,0.35)", borderRadius:7, fontSize:13, fontWeight:500, cursor:"pointer", fontFamily:"inherit" } as React.CSSProperties,
     btnGreen:   { padding:"7px 14px", background:"rgba(22,163,74,0.14)", color:"#16A34A", border:"1px solid rgba(22,163,74,0.35)", borderRadius:7, fontSize:12, cursor:"pointer", fontFamily:"inherit" } as React.CSSProperties,
 
-    // log
     log: { background:T.logBg, borderRadius:8, padding:16, height:200, overflowY:"auto" as const, fontFamily:"'SF Mono',monospace", fontSize:11, lineHeight:1.8, color:T.logText },
 
-    // metric cards
     metricCard: { background:T.cardBg, border:`1px solid ${T.border}`, borderRadius:10, padding:"16px 20px" } as React.CSSProperties,
     metricVal:  { fontSize:28, fontWeight:700, lineHeight:1, marginTop:6, color:T.text },
     metricLabel:{ fontSize:11, color:T.textMuted, fontWeight:500 },
@@ -500,14 +504,12 @@ const resetSearch = async () => {
   return (
     <div style={S.app}>
 
-      {/* ── Toast ── */}
       {toast && (
         <div style={{ position:"fixed", bottom:24, right:24, background:T.text, color:T.cardBg, padding:"10px 16px", borderRadius:8, fontSize:13, zIndex:9999, boxShadow:"0 4px 12px rgba(0,0,0,0.15)" }}>
           {toast}
         </div>
       )}
 
-      {/* ── SIDEBAR ── */}
       <div style={S.sidebar}>
         <div style={S.logo}>
           <div>
@@ -543,7 +545,6 @@ const resetSearch = async () => {
         </div>
       </div>
 
-      {/* ── MAIN ── */}
       <div style={S.main}>
 
         {/* ══ EJECUCIÓN ══ */}
@@ -552,7 +553,6 @@ const resetSearch = async () => {
             <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:T.text }}>Ejecución</h2>
             <p style={{ fontSize:13, color:T.textMuted, marginBottom:24 }}>Configura las búsquedas y ejecuta el pipeline completo.</p>
 
-            {/* botones ejecutar / parar */}
             <div style={{ display:"flex", gap:10, marginBottom:24 }}>
               <button onClick={runPipeline} disabled={running}
                 style={{ ...S.btnPrimary, flex:1, opacity: running ? 0.5 : 1, cursor: running ? "not-allowed" : "pointer" }}>
@@ -570,7 +570,6 @@ const resetSearch = async () => {
               )}
             </div>
 
-            {/* modo de búsqueda */}
             <div style={S.card}>
               <div style={S.cardTitle}>Modo de búsqueda</div>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
@@ -588,11 +587,8 @@ const resetSearch = async () => {
               )}
             </div>
 
-            {/* búsquedas */}
             <div style={S.card}>
               <div style={S.cardTitle}>Búsquedas configuradas</div>
-
-              {/* cabecera columnas */}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1.5fr 32px", gap:8, marginBottom:8 }}>
                 <span style={{ fontSize:11, color:T.textMuted, fontWeight:500 }}>Tema</span>
                 <span style={{ fontSize:11, color:T.textMuted, fontWeight:500 }}>Zona</span>
@@ -616,18 +612,15 @@ const resetSearch = async () => {
                 <button onClick={addConfig} style={S.btnGhost}>+ Añadir fila</button>
                 <button onClick={saveConfig} style={S.btnPrimary}>Guardar configuración</button>
                 <button onClick={resetSearch} disabled={resetting || running}
-    style={{ ...S.btnDanger, opacity: (resetting || running) ? 0.5 : 1, cursor: (resetting || running) ? "not-allowed" : "pointer" }}>
-    {resetting ? "⟳ Reiniciando..." : "↺ Reiniciar búsqueda"}
-  </button>
+                  style={{ ...S.btnDanger, opacity: (resetting || running) ? 0.5 : 1, cursor: (resetting || running) ? "not-allowed" : "pointer" }}>
+                  {resetting ? "⟳ Reiniciando..." : "↺ Reiniciar búsqueda"}
+                </button>
               </div>
             </div>
-
-
 
             <FinderPanel T={T} S={S} API={API} configs={configs} mode={mode}
               maxResults={modeOptions[mode]?.max_results_per_query ?? 60} addLog={addLog} showToast={showToast} />
 
-            {/* log */}
             <div style={S.card}>
               <div style={S.cardTitle}>Log del sistema</div>
               <div ref={logRef} style={S.log}>
@@ -644,11 +637,9 @@ const resetSearch = async () => {
           </div>
         )}
 
-
         {/* ══ LEADS ══ */}
         {tab === "leads" && (
           <>
-            {/* selector de vista: listas (nuevo) o tabla con detalle y mensajes IA (anterior) */}
             <div style={{ display:"flex", gap:4, padding:"10px 24px 0", background:T.cardBg, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
               {([["lists","Listas e historial"],["table","Detalle y mensajes IA"]] as const).map(([k,l]) => (
                 <button key={k} onClick={() => setLeadsView(k)} style={{ background:"none", border:"none", padding:"6px 2px", marginRight:18, cursor:"pointer", fontSize:13, color: leadsView===k ? "#2563EB" : T.textSecondary, fontWeight: leadsView===k ? 600 : 400, borderBottom:`2px solid ${leadsView===k ? "#2563EB" : "transparent"}` }}>{l}</button>
@@ -660,7 +651,6 @@ const resetSearch = async () => {
             ) : (
           <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
 
-            {/* barra top */}
             <div style={{ padding:"16px 24px", borderBottom:`1px solid ${T.border}`, background:T.cardBg, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
               <div>
                 <span style={{ fontSize:15, fontWeight:600 }}>Leads</span>
@@ -682,14 +672,12 @@ const resetSearch = async () => {
               </div>
             </div>
 
-            {/* tabla header */}
             <div style={{ display:"grid", gridTemplateColumns:"36px 1fr 60px 130px 90px 100px 30px", gap:12, padding:"10px 24px", background:T.inputBg, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
               {["", "Negocio", "Score", "Web", "Prioridad", "Estado", ""].map((h, i) => (
                 <span key={i} style={{ fontSize:11, fontWeight:600, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.05em" }}>{h}</span>
               ))}
             </div>
 
-            {/* lista */}
             <div style={{ flex:1, overflowY:"auto", background:T.cardBg }}>
               {leads.length === 0 ? (
                 <div style={{ textAlign:"center", padding:60, color:T.textMuted, fontSize:14 }}>
@@ -703,49 +691,40 @@ const resetSearch = async () => {
 
                 return (
                   <div key={lead.name} style={{ borderBottom:`1px solid ${T.borderLight}` }}>
-                    {/* fila */}
                     <div onClick={() => setExpanded(isExp ? null : lead.name)}
                       style={{ display:"grid", gridTemplateColumns:"36px 1fr 60px 130px 90px 100px 30px", gap:12, padding:"12px 24px", cursor:"pointer", background: isSel ? T.rowHover : "transparent", transition:"background 0.1s" }}>
 
-                      {/* checkbox */}
                       <div onClick={e => { e.stopPropagation(); toggleSelect(lead.name); }}
                         style={{ width:16, height:16, borderRadius:4, border:`1.5px solid ${isSel ? T.text : T.textMuted}`, background: isSel ? T.text : "transparent", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0, marginTop:2 }}>
                         {isSel && <span style={{ color:"#FFF", fontSize:9 }}>✓</span>}
                       </div>
 
-                      {/* nombre */}
                       <div>
                         <div style={{ fontSize:13, fontWeight:500, color:T.text }}>{lead.name}</div>
                         <div style={{ fontSize:11, color:T.textMuted, marginTop:1 }}>{lead.category} · {lead.zone}</div>
                       </div>
 
-                      {/* score */}
                       <div style={{ fontSize:14, fontWeight:700, color: pc }}>{lead.score}</div>
 
-                      {/* web */}
                       <div style={{ fontSize:11, color: lead.website ? T.textSecondary : "#E8442A" }}>
                         {lead.website ? lead.website.replace(/https?:\/\//, "").slice(0, 22) : "sin web ←"}
                       </div>
 
-                      {/* prioridad */}
                       <div>
                         <span style={{ fontSize:11, fontWeight:500, padding:"3px 8px", borderRadius:20, background: pb, color: pc }}>
                           {lead.priority === "high" ? "Alta" : lead.priority === "medium" ? "Media" : "Baja"}
                         </span>
                       </div>
 
-                      {/* estado del pipeline */}
                       <div>
                         <span style={{ fontSize:11, fontWeight:500, padding:"3px 8px", borderRadius:20, background: STAGE_BG[lead.status || "new"], color: STAGE_COLOR[lead.status || "new"] }}>
                           {STAGE_LABEL[lead.status || "new"]}
                         </span>
                       </div>
 
-                      {/* flecha */}
                       <div style={{ textAlign:"right", color:T.textMuted, fontSize:11, marginTop:2 }}>{isExp ? "▲" : "▼"}</div>
                     </div>
 
-                    {/* detalle expandido */}
                     {isExp && (
                       <div style={{ background:T.inputBg, borderTop:`1px solid ${T.border}`, padding:"16px 24px 16px 72px" }}>
                         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:16 }}>
@@ -814,7 +793,7 @@ const resetSearch = async () => {
             openCampaignId={openCampaignId} onOpened={() => setOpenCampaignId(null)} />
         )}
 
-        {/* ══ CRM (pipeline tipo Kanban) ══ */}
+        {/* ══ CRM ══ */}
         {tab === "crm" && (
           <div style={S.scroll}>
             <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:T.text }}>CRM</h2>
@@ -855,13 +834,12 @@ const resetSearch = async () => {
           </div>
         )}
 
-        {/* ══ ENGAGE (canales: Gmail + WhatsApp) ══ */}
+        {/* ══ ENGAGE ══ */}
         {tab === "engage" && (
           <div style={S.scroll}>
             <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:T.text }}>Engage</h2>
             <p style={{ fontSize:13, color:T.textMuted, marginBottom:20 }}>Tus canales de contacto, cada uno con su propia data.</p>
 
-            {/* sub-nav de canales */}
             <div style={{ display:"flex", gap:6, marginBottom:20, borderBottom:`1px solid ${T.border}`, paddingBottom:2 }}>
               {[
                 { key: "launch" as const,   label: "🚀  Lanzar campaña" },
@@ -890,13 +868,12 @@ const resetSearch = async () => {
                 onCampaignCreated={(id) => { setOpenCampaignId(id); setTab("campaigns"); }} />
             )}
 
-            {/* ── canal Gmail ── */}
             {channelTab === "gmail" && (
               <>
                 <div style={S.card}>
                   <div style={S.cardTitle}>Subir emails</div>
                   <p style={{ fontSize:12, color:T.textSecondary, marginBottom:12 }}>
-                    Google Maps no expone emails — sube un CSV o Excel con columnas <b>name</b> y <b>email</b> (por ejemplo, de Hunter.io o del sitio web de cada negocio).
+                    Sube un CSV o Excel con leads (acepta formatos de LinkedIn, Hunter, Snov, o tu propio CSV con columnas <b>name</b> + <b>email</b>). Se guardan como lista para lanzar campaña.
                   </p>
                   <input
                     ref={fileInputRef}
@@ -915,16 +892,19 @@ const resetSearch = async () => {
                     <div style={S.cardTitle}>Leads con email ({engageLeads.length})</div>
                     <button
                       onClick={() => sendCampaign(engageLeads.filter(l => l.email_body).map(l => l.name))}
-                      disabled={sendingCampaign || !emailAccount || engageLeads.filter(l => l.email_body).length === 0}
-                      style={{ ...S.btnPrimary, opacity: (sendingCampaign || !emailAccount || engageLeads.filter(l => l.email_body).length === 0) ? 0.4 : 1 }}
+                      disabled={sendingCampaign || emailAccounts.length === 0 || engageLeads.filter(l => l.email_body).length === 0}
+                      style={{
+                        ...S.btnPrimary,
+                        opacity: (sendingCampaign || emailAccounts.length === 0 || engageLeads.filter(l => l.email_body).length === 0) ? 0.4 : 1,
+                      }}
                     >
                       {sendingCampaign ? "Enviando..." : `✉ Enviar campaña (${engageLeads.filter(l => l.email_body).length})`}
                     </button>
                   </div>
 
-                  {!emailAccount && (
+                  {emailAccounts.length === 0 && (
                     <div style={{ fontSize:12, color:"#D97706", background:"rgba(217,119,6,0.14)", border:"1px solid rgba(217,119,6,0.35)", borderRadius:8, padding:10, marginBottom:12 }}>
-                      ⚠ No tienes una cuenta de Gmail conectada. Ve a "Cuentas de Email" primero.
+                      ⚠ No tienes ninguna cuenta de Gmail conectada. Ve a "Cuentas de Email" para agregar al menos una.
                     </div>
                   )}
 
@@ -951,59 +931,99 @@ const resetSearch = async () => {
               </>
             )}
 
-            {/* ── canal WhatsApp ── */}
             {channelTab === "whatsapp" && (
               <WhatsAppPanel T={T} API={API} showToast={showToast} onGoLaunch={() => setChannelTab("launch")} />
             )}
           </div>
         )}
 
-        {/* ══ CUENTAS DE EMAIL ══ */}
+        {/* ══ CUENTAS DE EMAIL (multi-cuenta) ══ */}
         {tab === "accounts" && (
           <div style={S.scroll}>
             <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:T.text }}>Cuentas de Email</h2>
-            <p style={{ fontSize:13, color:T.textMuted, marginBottom:24 }}>Conecta la cuenta de Gmail que va a enviar tus campañas.</p>
+            <p style={{ fontSize:13, color:T.textMuted, marginBottom:24 }}>
+              Conectá varias cuentas de Gmail y repartí los envíos entre ellas para no quemar ninguna.
+            </p>
 
-            {emailAccount ? (
-              <div style={S.card}>
-                <div style={S.cardTitle}>Cuenta conectada</div>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div style={S.card}>
+              <div style={S.cardTitle}>Cuentas conectadas ({emailAccounts.length})</div>
+              {emailAccounts.length === 0 && (
+                <div style={{ fontSize:13, color:T.textMuted, padding:"20px 0", textAlign:"center" }}>
+                  Aún no tenés cuentas. Agregá la primera abajo.
+                </div>
+              )}
+              {emailAccounts.map(a => (
+                <div key={a.id} style={{ display:"grid",
+                    gridTemplateColumns:"1.6fr 1fr 1fr 90px 190px", gap:12, alignItems:"center",
+                    padding:"12px 0", borderTop:`1px solid ${T.borderLight}` }}>
                   <div>
-                    <div style={{ fontSize:14, fontWeight:500, color:T.text }}>{emailAccount.email}</div>
-                    <div style={{ fontSize:11, color:T.textMuted }}>{emailAccount.smtp_host}:{emailAccount.smtp_port} · {emailAccount.from_name}</div>
+                    <div style={{ fontSize:13, fontWeight:500, color:T.text }}>
+                      {a.email} {a.primary && <span style={{ fontSize:10, color:"#16A34A", marginLeft:6 }}>primaria</span>}
+                    </div>
+                    <div style={{ fontSize:11, color:T.textMuted }}>
+                      {a.smtp_host}:{a.smtp_port} · {a.from_name || "—"}
+                    </div>
                   </div>
-                  <button onClick={disconnectEmailAccount} style={S.btnDanger}>Desconectar</button>
+                  <div style={{ fontSize:12, color:T.textSecondary }}>
+                    Hoy: <b style={{ color:T.text }}>{a.sent_today || 0}</b> / {a.daily_limit || 40}
+                  </div>
+                  <div style={{ fontSize:11 }}>
+                    <span style={{
+                      fontSize:11, fontWeight:500, padding:"3px 9px", borderRadius:20,
+                      background: a.enabled === false ? "rgba(232,68,42,0.14)" : "rgba(22,163,74,0.14)",
+                      color: a.enabled === false ? "#E8442A" : "#16A34A",
+                    }}>
+                      {a.enabled === false ? "● deshabilitada" : "● activa"}
+                    </span>
+                  </div>
+                  <div>
+                    <button onClick={() => testEmailAccount(a.id)} disabled={testingAccount === a.id}
+                      style={{ ...S.btnGhost, fontSize:11, opacity: testingAccount === a.id ? 0.5 : 1 }}>
+                      {testingAccount === a.id ? "…" : "Probar"}
+                    </button>
+                  </div>
+                  <div style={{ display:"flex", gap:6, justifyContent:"flex-end" }}>
+                    <button onClick={() => disconnectEmailAccount(a.id)} style={{ ...S.btnDanger, padding:"6px 12px", fontSize:12 }}>
+                      Desconectar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={S.card}>
+              <div style={S.cardTitle}>Agregar cuenta</div>
+              <p style={{ fontSize:12, color:T.textSecondary, marginBottom:14 }}>
+                Necesitás una <b>contraseña de aplicación</b> de Google (no tu contraseña normal).
+                Activala en tu cuenta → Seguridad → Verificación en 2 pasos → Contraseñas de aplicaciones.
+              </p>
+              <div style={{ display:"grid", gridTemplateColumns:"1.4fr 1.4fr 1fr 100px", gap:10, marginBottom:14 }}>
+                <div>
+                  <div style={{ fontSize:11, color:T.textMuted, marginBottom:4 }}>Gmail</div>
+                  <input style={S.input} placeholder="tu@gmail.com" value={emailForm.email}
+                    onChange={e => setEmailForm({ ...emailForm, email: e.target.value })} />
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:T.textMuted, marginBottom:4 }}>Contraseña de aplicación</div>
+                  <input style={S.input} type="password" placeholder="xxxx xxxx xxxx xxxx" value={emailForm.app_password}
+                    onChange={e => setEmailForm({ ...emailForm, app_password: e.target.value })} />
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:T.textMuted, marginBottom:4 }}>Nombre para mostrar</div>
+                  <input style={S.input} placeholder="Beacon AI" value={emailForm.from_name}
+                    onChange={e => setEmailForm({ ...emailForm, from_name: e.target.value })} />
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:T.textMuted, marginBottom:4 }}>Límite/día</div>
+                  <input style={S.input} type="number" min={1} value={emailForm.daily_limit}
+                    onChange={e => setEmailForm({ ...emailForm, daily_limit: Number(e.target.value) })} />
                 </div>
               </div>
-            ) : (
-              <div style={S.card}>
-                <div style={S.cardTitle}>Conectar Gmail</div>
-                <p style={{ fontSize:12, color:T.textSecondary, marginBottom:14 }}>
-                  Necesitas una <b>contraseña de aplicación</b> de Google (no tu contraseña normal).
-                  Actívala en tu cuenta de Google → Seguridad → Verificación en 2 pasos → Contraseñas de aplicaciones.
-                </p>
-                <div style={{ display:"grid", gap:10, maxWidth:420 }}>
-                  <div>
-                    <div style={{ fontSize:11, color:T.textMuted, marginBottom:4 }}>Tu Gmail</div>
-                    <input style={S.input} placeholder="tu@gmail.com" value={emailForm.email}
-                      onChange={e => setEmailForm({ ...emailForm, email: e.target.value })} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize:11, color:T.textMuted, marginBottom:4 }}>Contraseña de aplicación</div>
-                    <input style={S.input} type="password" placeholder="xxxx xxxx xxxx xxxx" value={emailForm.app_password}
-                      onChange={e => setEmailForm({ ...emailForm, app_password: e.target.value })} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize:11, color:T.textMuted, marginBottom:4 }}>Nombre para mostrar</div>
-                    <input style={S.input} placeholder="Tu Nombre / Tu Agencia" value={emailForm.from_name}
-                      onChange={e => setEmailForm({ ...emailForm, from_name: e.target.value })} />
-                  </div>
-                  <button onClick={saveEmailAccount} disabled={savingEmail} style={{ ...S.btnPrimary, opacity: savingEmail ? 0.5 : 1, width:"fit-content" }}>
-                    {savingEmail ? "Conectando..." : "Conectar cuenta"}
-                  </button>
-                </div>
-              </div>
-            )}
+              <button onClick={saveEmailAccount} disabled={savingEmail}
+                style={{ ...S.btnPrimary, opacity: savingEmail ? 0.5 : 1, width:"fit-content" }}>
+                {savingEmail ? "Conectando…" : "+ Conectar cuenta"}
+              </button>
+            </div>
           </div>
         )}
 
@@ -1013,7 +1033,6 @@ const resetSearch = async () => {
             <h2 style={{ fontSize:20, fontWeight:700, marginBottom:4, color:T.text }}>Métricas</h2>
             <p style={{ fontSize:13, color:T.textMuted, marginBottom:24 }}>Resumen del rendimiento del agente.</p>
 
-            {/* grid métricas */}
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:24 }}>
               {[
                 { label:"Leads scrapeados",   value: metrics.leads_scraped   || 0 },
@@ -1030,7 +1049,6 @@ const resetSearch = async () => {
               ))}
             </div>
 
-            {/* pipeline (funnel tipo CRM) */}
             <div style={S.card}>
               <div style={S.cardTitle}>Pipeline de leads</div>
               {STAGES.map(s => ({ label: STAGE_LABEL[s], value: metrics.pipeline?.[s] || 0, color: STAGE_COLOR[s] })).map(b => (
@@ -1046,7 +1064,6 @@ const resetSearch = async () => {
               ))}
             </div>
 
-            {/* prioridad */}
             <div style={S.card}>
               <div style={S.cardTitle}>Por prioridad</div>
               {[

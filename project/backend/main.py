@@ -195,44 +195,67 @@ def apply_status_overlay(leads: list) -> list:
 
 
 # ─────────────────────────────────────────────
-#  CUENTAS DE EMAIL (Gmail) — tipo "Email Accounts" de Instantly
+#  CUENTAS DE EMAIL (Gmail multi-cuenta)
 # ─────────────────────────────────────────────
-EMAIL_SETTINGS_FILE = "email_settings.json"
+import email_accounts
+from pydantic import BaseModel
 
-class EmailSettings(BaseModel):
-    smtp_host:    Optional[str] = "smtp.gmail.com"
-    smtp_port:    Optional[int] = 587
-    email:        str
+class EmailAccountIn(BaseModel):
+    email: str
     app_password: str
-    from_name:    Optional[str] = "Tu Nombre"
+    from_name: Optional[str] = "Tu Nombre"
+    smtp_host: Optional[str] = "smtp.gmail.com"
+    smtp_port: Optional[int] = 587
+    daily_limit: Optional[int] = 40
 
-def load_email_settings() -> dict:
-    if os.path.exists(EMAIL_SETTINGS_FILE):
-        with open(EMAIL_SETTINGS_FILE, encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+
+class EmailAccountPatch(BaseModel):
+    from_name:    Optional[str] = None
+    daily_limit:  Optional[int] = None
+    enabled:      Optional[bool] = None
+
 
 @app.get("/settings/email", tags=["settings"])
-def get_email_settings():
-    """Devuelve la config de la cuenta de Gmail conectada (sin exponer la contraseña real)."""
-    s = load_email_settings()
-    if s.get("app_password"):
-        s = {**s, "app_password": "••••••••"}
-    return s
+def list_email_accounts():
+    return {"accounts": email_accounts.list_accounts()}
+
 
 @app.post("/settings/email", tags=["settings"])
-def save_email_settings(body: EmailSettings):
-    """Guarda/actualiza la cuenta de Gmail que se usa para enviar campañas."""
-    with open(EMAIL_SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(body.dict(), f, indent=2, ensure_ascii=False)
-    return {"ok": True, "connected": True, "email": body.email}
+def add_email_account(body: EmailAccountIn):
+    try:
+        acc = email_accounts.add_account(
+            email=body.email, app_password=body.app_password,
+            from_name=body.from_name or "Tu Nombre",
+            smtp_host=body.smtp_host or "smtp.gmail.com",
+            smtp_port=body.smtp_port or 587,
+            daily_limit=body.daily_limit or 40,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "account": acc}
 
-@app.delete("/settings/email", tags=["settings"])
-def disconnect_email():
-    if os.path.exists(EMAIL_SETTINGS_FILE):
-        os.remove(EMAIL_SETTINGS_FILE)
+
+@app.patch("/settings/email/{acc_id}", tags=["settings"])
+def patch_email_account(acc_id: str, body: EmailAccountPatch):
+    try:
+        return {"ok": True, "account": email_accounts.update_account(
+            acc_id, **body.dict(exclude_unset=True))}
+    except KeyError:
+        raise HTTPException(404, "Cuenta no encontrada")
+
+
+@app.delete("/settings/email/{acc_id}", tags=["settings"])
+def delete_email_account(acc_id: str):
+    try:
+        email_accounts.delete_account(acc_id)
+    except KeyError:
+        raise HTTPException(404, "Cuenta no encontrada")
     return {"ok": True}
 
+
+@app.post("/settings/email/{acc_id}/test", tags=["settings"])
+def test_email_account(acc_id: str):
+    return email_accounts.test_account(acc_id)
 
 # ─────────────────────────────────────────────
 #  EMAILS DE LEADS (overlay: name -> email)

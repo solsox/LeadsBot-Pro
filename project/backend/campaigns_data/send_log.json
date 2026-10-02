@@ -818,5 +818,25 @@
     "step": 0,
     "channel": "email",
     "ok": true
+  },
+  {
+    "ts": "2026-10-02T03:21:52.424071+00:00",
+    "campaign_id": "c_bb59ec13",
+    "lead_key": "+573001234567",
+    "lead": "Beacon AI Test",
+    "step": 0,
+    "channel": "email",
+    "ok": true,
+    "account_email": "samuelvaronhincapie@gmail.com"
+  },
+  {
+    "ts": "2026-10-02T03:22:54.262373+00:00",
+    "campaign_id": "c_bb59ec13",
+    "lead_key": "+573001234568",
+    "lead": "Beacon AI Test 2",
+    "step": 0,
+    "channel": "email",
+    "ok": true,
+    "account_email": "beaconicai@gmail.com"
   }
 ]

@@ -10,6 +10,8 @@ type Schedule = {
 type Campaign = {
   id: string; name: string; status: "draft" | "active" | "paused"; list_id?: string | null;
   steps: Step[]; schedule: Schedule; variables: Record<string, string>;
+  email_account_ids?: string[];      // ← NUEVO
+  account_strategy?: string;         // ← NUEVO
 };
 type Summary = { id: string; name: string; status: string; steps: number; leads: number; sent: number; replied: number; active: number; completed: number };
 type ListSummary = { id: string; name: string; source: string; count: number; with_phone: number; with_email: number };
@@ -108,8 +110,9 @@ function Pill({ color, text }: { color: string; text: string }) {
 // ═════════════════════════════════════════════════════════════════════
 function CampaignDetail({ T, API, id, onBack, showToast }: { T: Theme; API: string; id: string; onBack: () => void; showToast: (m: string) => void }) {
   const [camp, setCamp] = useState<Campaign | null>(null);
-  const [tab, setTab] = useState<"analytics" | "leads" | "sequence" | "schedule" | "options">("sequence");
-  const [dirty, setDirty] = useState(false);
+const [tab, setTab] = useState<
+  "analytics" | "leads" | "sequence" | "schedule" | "accounts" | "options"
+>("sequence");  const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -147,7 +150,7 @@ function CampaignDetail({ T, API, id, onBack, showToast }: { T: Theme; API: stri
 
   if (!camp) return <div style={{ padding: 32, color: T.textMuted }}>Cargando…</div>;
 
-  const tabs = [["analytics", "Analíticas"], ["leads", "Leads"], ["sequence", "Secuencia"], ["schedule", "Horario"], ["options", "Variables"]] as const;
+  const tabs = [["analytics", "Analíticas"], ["leads", "Leads"], ["sequence", "Secuencia"], ["schedule", "Horario"], ["accounts", "Cuentas"], ["options", "Variables"]] as const;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -176,6 +179,7 @@ function CampaignDetail({ T, API, id, onBack, showToast }: { T: Theme; API: stri
         {tab === "sequence" && <Sequence T={T} API={API} camp={camp} patch={patch} showToast={showToast} />}
         {tab === "schedule" && <ScheduleTab T={T} camp={camp} patch={patch} />}
         {tab === "options" && <VariablesTab T={T} camp={camp} patch={patch} />}
+        {tab === "accounts" && <AccountsTab T={T} API={API} camp={camp} patch={patch} />}
       </div>
     </div>
   );
@@ -494,6 +498,136 @@ function VariablesTab({ T, camp, patch }: { T: Theme; camp: Campaign; patch: (p:
           <input placeholder="Nueva variable (ej. oferta)" value={newKey} onChange={e => setNewKey(e.target.value)} onKeyDown={e => e.key === "Enter" && add()} style={{ ...inp, width: 260 }} />
           <button onClick={add} style={{ padding: "8px 14px", background: T.accentBg, color: T.accentText, border: "none", borderRadius: 7, fontSize: 12, cursor: "pointer" }}>+ Añadir</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  CUENTAS DE GMAIL — selección + estrategia de rotación
+// ═════════════════════════════════════════════════════════════════════
+function AccountsTab({ T, API, camp, patch }: {
+  T: Theme; API: string; camp: Campaign; patch: (p: Partial<Campaign>) => void;
+}) {
+  const [accounts, setAccounts] = useState<any[]>([]);
+  useEffect(() => {
+    fetch(`${API}/settings/email`).then(r => r.ok ? r.json() : { accounts: [] })
+      .then(d => setAccounts(d.accounts || [])).catch(() => {});
+  }, [API]);
+
+  const selected = camp.email_account_ids || [];
+  const strategy = camp.account_strategy || "least_used";
+
+  const toggle = (id: string) => {
+    const s = new Set(selected);
+    s.has(id) ? s.delete(id) : s.add(id);
+    patch({ email_account_ids: Array.from(s), account_strategy: strategy });
+  };
+  const setAll = () => patch({ email_account_ids: [], account_strategy: strategy });
+  const setStrategy = (v: string) => patch({ account_strategy: v, email_account_ids: selected });
+
+  const effective = accounts.filter(a => a.enabled !== false &&
+                                          (selected.length === 0 || selected.includes(a.id)));
+  const capacity  = effective.reduce((s, a) => s + (a.daily_limit || 40), 0);
+
+  const card: React.CSSProperties = { background: T.cardBg, border: `1px solid ${T.border}`, borderRadius: 10, padding: 20 };
+  const rowStyle = (on: boolean, disabled: boolean): React.CSSProperties => ({
+    display: "grid", gridTemplateColumns: "26px 1fr 90px 90px 90px", gap: 12, alignItems: "center",
+    padding: "10px 12px", borderRadius: 8, border: `1px solid ${on ? "#2563EB" : T.border}`,
+    background: on ? "rgba(37,99,235,0.08)" : "transparent", marginBottom: 8,
+    cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.45 : 1,
+  });
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: 32, maxWidth: 800 }}>
+      <div style={card}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 4 }}>
+          Cuentas de Gmail para esta campaña
+        </div>
+        <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 16, lineHeight: 1.6 }}>
+          Los envíos se reparten automáticamente entre las cuentas seleccionadas para no saturar ninguna.
+          Si no seleccionás ninguna, se usan <b>todas las cuentas habilitadas</b>.
+        </div>
+
+        {accounts.length === 0 && (
+          <div style={{ fontSize: 13, color: T.textMuted, padding: 20, textAlign: "center" }}>
+            No hay cuentas conectadas. Andá a <b>Cuentas de Email</b> en el menú lateral para agregar una.
+          </div>
+        )}
+
+        {accounts.length > 0 && (
+          <>
+            <label style={{ ...rowStyle(selected.length === 0, false), marginBottom: 12 }}>
+              <input type="radio" checked={selected.length === 0} onChange={setAll} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: T.text }}>Todas las cuentas habilitadas</div>
+                <div style={{ fontSize: 11, color: T.textMuted }}>Se usa cualquier cuenta que tenga cupo hoy</div>
+              </div>
+              <div />
+              <div />
+              <div style={{ fontSize: 12, color: T.textMuted, textAlign: "right" }}>
+                {accounts.filter(a => a.enabled !== false).length} cuentas
+              </div>
+            </label>
+
+            {accounts.map(a => {
+              const on = selected.includes(a.id);
+              const disabled = a.enabled === false;
+              const daily = a.daily_limit || 40;
+              const sent  = a.sent_today || 0;
+              return (
+                <label key={a.id} onClick={() => !disabled && toggle(a.id)} style={rowStyle(on, disabled)}>
+                  <input type="checkbox" checked={on} disabled={disabled}
+                         onChange={() => toggle(a.id)} onClick={e => e.stopPropagation()} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: T.text }}>{a.email}</div>
+                    <div style={{ fontSize: 11, color: T.textMuted }}>
+                      {a.from_name || "—"} {a.primary ? "· primaria" : ""}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: T.textSecondary, textAlign: "right" }}>
+                    {sent} / {daily} hoy
+                  </div>
+                  <div style={{ fontSize: 12, color: T.textSecondary, textAlign: "right" }}>
+                    {daily - sent} restantes
+                  </div>
+                  <div style={{ fontSize: 11, color: disabled ? "#E8442A" : "#16A34A", textAlign: "right" }}>
+                    {disabled ? "● deshabilitada" : "● activa"}
+                  </div>
+                </label>
+              );
+            })}
+
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${T.borderLight}` }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: T.textMuted, textTransform: "uppercase", marginBottom: 10 }}>
+                Estrategia de rotación
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[
+                  ["least_used",  "Menos usada primero", "Reparte parejo: siempre la que menos envió hoy"],
+                  ["round_robin", "Round-robin",         "Rota en orden estricto: A → B → C → A"],
+                  ["random",      "Aleatoria",           "Elige al azar entre las que tienen cupo"],
+                ].map(([v, label, hint]) => (
+                  <button key={v} onClick={() => setStrategy(v)} style={{
+                    padding: "10px 14px", borderRadius: 8, cursor: "pointer", textAlign: "left",
+                    border: `1.5px solid ${strategy === v ? "#2563EB" : T.border}`,
+                    background: strategy === v ? "rgba(37,99,235,0.08)" : "transparent",
+                    color: strategy === v ? "#2563EB" : T.text, fontSize: 13,
+                  }}>
+                    <div style={{ fontWeight: 600 }}>{label}</div>
+                    <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>{hint}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16, background: T.inputBg, borderRadius: 8, padding: 12,
+                          fontSize: 12, color: T.textSecondary, lineHeight: 1.6 }}>
+              Capacidad estimada: <b style={{ color: T.text }}>{capacity}</b> correos/día entre las cuentas seleccionadas.
+              Recordá que también aplica el tope <b>Máx. correos por día</b> de la pestaña Horario (el que corte primero gana).
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
